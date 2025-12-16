@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { api } from '../lib/api';
 
@@ -72,3 +71,4 @@ export function SettingsProvider({ children }) {
 }
 
 export const useSettings = () => useContext(SettingsContext);
+
