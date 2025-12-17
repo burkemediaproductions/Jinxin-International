@@ -593,5 +593,4 @@ app.listen(PORT, '0.0.0.0', () => {
 
 
 // Impot Fields and Content Types
-import contentTypesRouter from './routes/contentTypes.js';
 app.use('/api/content-types', contentTypesRouter);
