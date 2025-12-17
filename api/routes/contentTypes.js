@@ -330,3 +330,50 @@ router.put("/:id/fields", requireAdmin, async (req, res) => {
 });
 
 export default router;
+
+
+
+// Add Surrogate Routes
+
+router.post('/import', requireAdmin, async (req, res) => {
+  try {
+    const { contentType, fields } = req.body;
+
+    if (!contentType || !fields) {
+      return res.status(400).json({
+        error: 'contentType and fields are required'
+      });
+    }
+
+    // 1️⃣ Create content type
+    const createdType = await db.content_types.create({
+      key: contentType.key,
+      singular: contentType.singular,
+      plural: contentType.plural,
+      slug: contentType.slug
+    });
+
+    // 2️⃣ Create fields
+    for (const field of fields) {
+      await db.fields.create({
+        content_type_id: createdType.id,
+        key: field.key,
+        label: field.label,
+        type: field.type,
+        options_source: field.optionsSource || null,
+        options: field.options || null,
+        relation: field.relation || null
+      });
+    }
+
+    res.json({
+      ok: true,
+      contentType: createdType,
+      fieldsImported: fields.length
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Import failed' });
+  }
+});
+
