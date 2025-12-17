@@ -36,6 +36,8 @@ import publicSiteRouter from './routes/publicSite.js';
 
 
 
+
+
 /**
  * This file defines the main Express app for the ServiceUp API.  It is
  * largely identical to the original `api/index.js` in your repository
@@ -584,3 +586,12 @@ const PORT = process.env.PORT || 4000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log('[BOOT] ServiceUp API listening on', PORT);
 });
+
+
+
+
+
+
+// Impot Fields and Content Types
+import contentTypesRouter from './routes/contentTypes.js';
+app.use('/api/content-types', contentTypesRouter);
