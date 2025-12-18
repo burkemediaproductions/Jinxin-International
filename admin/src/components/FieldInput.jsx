@@ -403,8 +403,9 @@ export default function FieldInput({ field, value, onChange, relatedCache, choic
     );
   }
 
-  if (field.type === 'radio') {
-    const choices = normalizeChoices(isDynamic ? dynamicChoices : (Array.isArray(field.options) ? field.options : []));
+  if (fieldType === 'radio') {
+    const baseChoices = isDynamic ? dynamicChoices : (field?.config?.choices ?? field?.config?.options ?? field?.options ?? field?.choices ?? []);
+    const choices = normalizeChoices(baseChoices);
     const current = value ?? '';
     return (
       <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
@@ -424,8 +425,11 @@ export default function FieldInput({ field, value, onChange, relatedCache, choic
     );
   }
 
-  if (field.type === 'dropdown') {
-    const choices = normalizeChoices(isDynamic ? dynamicChoices : (Array.isArray(field.options) ? field.options : []));
+  if (['dropdown', 'select'].includes(fieldType)) {
+    const baseChoices = isDynamic
+      ? dynamicChoices
+      : (field?.config?.choices ?? field?.config?.options ?? field?.options ?? field?.choices ?? []);
+    const choices = normalizeChoices(baseChoices);
     return (
       <select value={value ?? ''} onChange={e => onChange(e.target.value)}>
         <option value="" disabled>Select…</option>
@@ -434,8 +438,29 @@ export default function FieldInput({ field, value, onChange, relatedCache, choic
     );
   }
 
-  if (field.type === 'checkbox') {
-    const choices = normalizeChoices(isDynamic ? dynamicChoices : (Array.isArray(field.options) ? field.options : []));
+  if (fieldType === 'multiselect') {
+    const baseChoices = isDynamic
+      ? dynamicChoices
+      : (field?.config?.choices ?? field?.config?.options ?? field?.options ?? field?.choices ?? []);
+    const choices = normalizeChoices(baseChoices);
+    const selected = Array.isArray(value) ? value : (value ? String(value).split(',').map(v => v.trim()).filter(Boolean) : []);
+    return (
+      <select
+        multiple
+        value={selected}
+        onChange={(e) => {
+          const vals = Array.from(e.target.selectedOptions || []).map(o => o.value);
+          onChange(vals);
+        }}
+      >
+        {choices.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+      </select>
+    );
+  }
+
+  if (fieldType === 'checkbox') {
+    const baseChoices = isDynamic ? dynamicChoices : (field?.config?.choices ?? field?.config?.options ?? field?.options ?? field?.choices ?? []);
+    const choices = normalizeChoices(baseChoices);
     const current = Array.isArray(value) ? value : [];
     return (
       <div>
