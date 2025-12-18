@@ -12,6 +12,9 @@ const RAW_FIELD_TYPES = [
   "json",
   "radio",
   "dropdown",
+  "select",
+  "multiselect",
+  "relation",
   "checkbox",
   "relationship",
   "email",
@@ -280,17 +283,41 @@ export default function QuickBuilderPage() {
         });
 
         setFields(
-          (data.fields || []).map((f) => ({
-            id: f.id,
-            field_key: f.field_key,
-            label: f.label,
-            type: f.type,
-            required: !!f.required,
-            help_text: f.help_text || "",
-            order_index:
-              typeof f.order_index === "number" ? f.order_index : 0,
-            config: f.config || {},
-          }))
+          (data.fields || []).map((f) => {
+            const rawType = String(f.type || "text").toLowerCase();
+
+            // Backward/forward compatibility:
+            // - older imports used "select" for dropdowns
+            // - keep "dropdown" as canonical in the admin
+            const normalizedType =
+              rawType === "select"
+                ? "dropdown"
+                : rawType === "relationship"
+                ? "relation"
+                : rawType;
+
+            const cfg = f.config || {};
+            const normalizedConfig = {
+              ...cfg,
+              // Support both shapes:
+              // - config.choices (canonical in ServiceUp admin UI)
+              // - config.options (older/SQL/import shape)
+              choices: cfg.choices ?? cfg.options ?? null,
+              options: cfg.options ?? cfg.choices ?? null,
+            };
+
+            return {
+              id: f.id,
+              field_key: f.field_key,
+              label: f.label,
+              type: normalizedType,
+              required: !!f.required,
+              help_text: f.help_text || "",
+              order_index:
+                typeof f.order_index === "number" ? f.order_index : 0,
+              config: normalizedConfig,
+            };
+          })
         );
       } catch (err) {
         console.error(err);
@@ -569,7 +596,7 @@ export default function QuickBuilderPage() {
         </div>
 
         {/* Choice-based fields */}
-        {["radio", "dropdown", "checkbox"].includes(type) && (
+        {["radio", "dropdown", "checkbox", "select", "multiselect"].includes(type) && (
           <div className="mb-4 space-y-1">
             <div className="font-medium">Choices</div>
             <p className="text-xs text-gray-500">
@@ -609,7 +636,7 @@ export default function QuickBuilderPage() {
         )}
 
         {/* Relationship config */}
-        {type === "relationship" && (
+        {["relationship", "relation"].includes(type) && (
           <div className="mb-4 grid gap-3 md:grid-cols-2">
             <label className="space-y-1">
               <span className="font-medium">Related content type slug</span>
