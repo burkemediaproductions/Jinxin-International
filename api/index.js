@@ -21,7 +21,7 @@ import entryViewsRouter from './routes/entryViews.js';
 import listViewsRouter from './routes/listViews.js';
 
 // Import Content Types
-app.use('./routes/content-types', contentTypesRouter);
+app.use('/api/content-types', authMiddleware, contentTypesRouter);
 
 
 // NEW: Gizmos & Gadgets & Widgets routers
