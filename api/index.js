@@ -20,6 +20,10 @@ import contentTypesRouter from './routes/contentTypes.js';
 import entryViewsRouter from './routes/entryViews.js';
 import listViewsRouter from './routes/listViews.js';
 
+// Import Content Types
+app.use('./routes/content-types', contentTypesRouter);
+
+
 // NEW: Gizmos & Gadgets & Widgets routers
 import gizmosRouter from './routes/gizmos.js';
 import gadgetsRouter from './routes/gadgets.js';
@@ -586,11 +590,3 @@ const PORT = process.env.PORT || 4000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log('[BOOT] ServiceUp API listening on', PORT);
 });
-
-
-
-
-
-
-// Impot Fields and Content Types
-app.use('/api/content-types', contentTypesRouter);
