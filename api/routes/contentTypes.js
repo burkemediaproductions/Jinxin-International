@@ -179,16 +179,42 @@ router.post("/import", requireAdmin, async (req, res) => {
         const fieldKey = String(f?.key || f?.field_key || "").trim();
         if (!fieldKey) return null;
 
+        const rawType = String(f?.type || "text").trim().toLowerCase();
+
+        // Canonicalize types so the admin UI renders correctly.
+        // (Older/import payloads often used "select" while the UI expects "dropdown".)
+        const type =
+          rawType === "select"
+            ? "dropdown"
+            : rawType === "relationship"
+            ? "relation"
+            : rawType;
+
+        // Support multiple config shapes:
+        // - Newer UI uses config.choices
+        // - Some imports/SQL use options + optionsSource at the top level
+        const cfg = f?.config || {};
+        const choices =
+          cfg?.choices ??
+          cfg?.options ??
+          f?.choices ??
+          f?.options ??
+          null;
+
         const config = {
-          optionsSource: f?.optionsSource ?? null,
-          options: f?.options ?? null,
-          relation: f?.relation ?? null,
+          // Keep the existing keys your UI/components already use
+          choices,
+          relation: cfg?.relation ?? f?.relation ?? null,
+
+          // Keep these too (harmless if unused; helpful for future)
+          optionsSource: cfg?.optionsSource ?? f?.optionsSource ?? (choices ? "inline" : null),
+          options: cfg?.options ?? f?.options ?? null,
         };
 
         return {
           field_key: fieldKey,
           label: String(f?.label || fieldKey).trim(),
-          type: String(f?.type || "text").trim(),
+          type,
           required: !!f?.required,
           help_text: String(f?.help_text || "").trim(),
           order_index:
