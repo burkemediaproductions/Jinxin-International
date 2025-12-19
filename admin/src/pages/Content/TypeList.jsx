@@ -266,7 +266,9 @@ export default function TypeList() {
 
           if (chosenView) {
             setActiveViewSlug(chosenView.slug);
-            setActiveViewLabel(chosenView.label || chosenView.slug);
+            setActiveViewLabel(
+              chosenView.label || chosenView.name || chosenView.title || chosenView.slug,
+            );
 
             const cfgCols =
               (chosenView.config && chosenView.config.columns) || [];
