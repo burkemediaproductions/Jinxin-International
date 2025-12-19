@@ -443,6 +443,58 @@ export default function TypeList() {
               loading="lazy"
             />
           );
+
+  const columnLabel = useMemo(() => {
+    const map = new Map();
+
+    // Built-in/system columns
+    const builtins = {
+      title: "Title",
+      slug: "Slug",
+      status: "Status",
+      created_at: "Created",
+      updated_at: "Updated",
+      published_at: "Published",
+      version: "Version",
+      id: "ID",
+    };
+    Object.entries(builtins).forEach(([k, v]) => map.set(k, v));
+
+    // Custom field labels from content type
+    const ctFields = Array.isArray(contentType?.fields) ? contentType.fields : [];
+    ctFields.forEach((f) => {
+      const k = f?.field_key || f?.key;
+      if (!k) return;
+      const label = f?.label || f?.name;
+      if (label) map.set(k, label);
+    });
+
+    // View column overrides (allow per-view header labels)
+    const activeView = (listViews || []).find((v) => v?.slug === activeViewSlug);
+    const vCols = activeView?.config?.columns;
+    if (Array.isArray(vCols)) {
+      vCols.forEach((c) => {
+        if (!c) return;
+        const key =
+          (typeof c === "string" ? c : c.key || c.field || c.field_key) || null;
+        if (!key) return;
+        const label =
+          typeof c === "object"
+            ? c.label || c.header || c.title || c.name
+            : null;
+        if (label) map.set(key, String(label));
+      });
+    }
+
+    const humanize = (k) =>
+      String(k || "")
+        .replace(/_/g, " ")
+        .replace(/-/g, " ")
+        .trim()
+        .replace(/\b\w/g, (m) => m.toUpperCase());
+
+    return (key) => map.get(key) || humanize(key);
+  }, [contentType, listViews, activeViewSlug]);
         }
       }
       return summarizeArray(value);
@@ -605,7 +657,7 @@ export default function TypeList() {
                 <thead>
                   <tr>
                     {displayColumns.map((key) => (
-                      <th key={key}>{key}</th>
+                      <th key={key}>{columnLabel(key)}</th>
                     ))}
                   </tr>
                 </thead>
