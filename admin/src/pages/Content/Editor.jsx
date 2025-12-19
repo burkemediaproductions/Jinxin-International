@@ -239,7 +239,9 @@ export default function Editor() {
         if (chosenView) {
           if (!cancelled) {
             setActiveViewSlug(chosenView.slug);
-            setActiveViewLabel(chosenView.label || chosenView.slug);
+            setActiveViewLabel(
+              chosenView.label || chosenView.name || chosenView.title || chosenView.slug,
+            );
             setEditorViewConfig(chosenView.config || {});
           }
           const currentViewParam = searchParams.get("view");
@@ -638,14 +640,14 @@ export default function Editor() {
                     onClick={() => {
                       if (v.slug === activeViewSlug) return;
                       setActiveViewSlug(v.slug);
-                      setActiveViewLabel(v.label || v.slug);
+                      setActiveViewLabel(v.label || v.name || v.title || v.slug);
                       setEditorViewConfig(v.config || {});
                       const next = new URLSearchParams(searchParams);
                       next.set("view", v.slug);
                       setSearchParams(next);
                     }}
                   >
-                    {v.label || v.slug}
+                    {v.label || v.name || v.title || v.slug}
                     {isDefaultForRole && (
                       <span className="su-chip-badge">default</span>
                     )}
@@ -793,17 +795,27 @@ export default function Editor() {
                         key={key}
                         style={{ gridColumn: `span ${width || 1}` }}
                       >
-                        <FieldInput
-                          field={def}
-                          value={value}
-                          onChange={(val) => {
-                            if (!key) return;
-                            setData((prev) => ({
-                              ...(prev || {}),
-                              [key]: val,
-                            }));
-                          }}
-                        />
+                        <div style={{ display: "grid", gap: 6 }}>
+                          <label style={{ fontSize: 13, fontWeight: 600 }}>
+                            {def.label || def.name || def.key}
+                          </label>
+                          <FieldInput
+                            field={def}
+                            value={value}
+                            onChange={(val) => {
+                              if (!key) return;
+                              setData((prev) => ({
+                                ...(prev || {}),
+                                [key]: val,
+                              }));
+                            }}
+                          />
+                          {(def.help || def.description) && (
+                            <div style={{ fontSize: 12, opacity: 0.7 }}>
+                              {def.help || def.description}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
