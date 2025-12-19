@@ -1,9 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import {
-  useNavigate,
-  useParams,
-  useSearchParams,
-} from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { useSettings } from '../../context/SettingsContext';
 
@@ -92,13 +88,11 @@ function getImageUrlFromValue(value) {
   if (!value) return null;
   if (typeof value === 'string') return value;
   if (Array.isArray(value) && value.length) {
-    // try first element
     return getImageUrlFromValue(value[0]);
   }
   if (typeof value === 'object') {
     if (value.url) return value.url;
     if (value.src) return value.src;
-    // common file-ish shapes
     if (value.publicUrl) return value.publicUrl;
   }
   return null;
@@ -122,6 +116,9 @@ export default function TypeList() {
   const navigate = useNavigate();
   const { type: typeSlugParam, typeSlug: typeSlugAlt } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
+
+  // ✅ stable dependency for the effect (reruns when query string changes)
+  const viewParam = searchParams.toString();
 
   // Depending on how the route is declared it might be :type or :typeSlug
   const typeSlug = typeSlugParam || typeSlugAlt;
@@ -245,14 +242,9 @@ export default function TypeList() {
             views.find((v) => {
               const cfg = v.config || {};
               const dRoles = Array.isArray(cfg.default_roles)
-                ? cfg.default_roles.map((r) =>
-                    String(r || '').toUpperCase(),
-                  )
+                ? cfg.default_roles.map((r) => String(r || '').toUpperCase())
                 : [];
-              if (dRoles.length) {
-                return dRoles.includes(roleUpper);
-              }
-              // Legacy fallback: use is_default when default_roles not set
+              if (dRoles.length) return dRoles.includes(roleUpper);
               return !!v.is_default;
             }) || views[0];
 
@@ -267,19 +259,17 @@ export default function TypeList() {
           if (chosenView) {
             setActiveViewSlug(chosenView.slug);
             setActiveViewLabel(
-              chosenView.label || chosenView.name || chosenView.title || chosenView.slug,
+              chosenView.label ||
+                chosenView.name ||
+                chosenView.title ||
+                chosenView.slug,
             );
 
-            const cfgCols =
-              (chosenView.config && chosenView.config.columns) || [];
-            // 🔑 Do NOT filter by keysFromRows — we always show configured columns
-            const cfgKeys = cfgCols
-              .map((c) => c.key)
-              .filter(Boolean);
+            const cfgCols = (chosenView.config && chosenView.config.columns) || [];
+            // 🔑 Do NOT filter by keysFromRows — always show configured columns
+            const cfgKeys = cfgCols.map((c) => c.key).filter(Boolean);
 
-            if (cfgKeys.length) {
-              effectiveCols = cfgKeys;
-            }
+            if (cfgKeys.length) effectiveCols = cfgKeys;
           }
         }
 
@@ -287,13 +277,11 @@ export default function TypeList() {
         if (!effectiveCols.length) {
           const storedCols = loadListColumns(typeSlug);
           const base = storedCols.length ? storedCols : keysFromRows;
-          effectiveCols = base.filter(
-            (k) => k && k !== 'id' && k !== '_id',
-          );
+          effectiveCols = base.filter((k) => k && k !== 'id' && k !== '_id');
+
           if (!views || !views.length) {
             setActiveViewSlug('');
             setActiveViewLabel('');
-            // Clean up any stale ?view= param
             if (searchParams.get('view')) {
               const next = new URLSearchParams(searchParams);
               next.delete('view');
@@ -318,20 +306,16 @@ export default function TypeList() {
         saveListColumns(typeSlug, effectiveCols);
       } catch (e) {
         console.error('[TypeList] Error loading entries', e);
-        if (!cancelled) {
-          setError('Failed to load entries for this content type.');
-        }
+        if (!cancelled) setError('Failed to load entries for this content type.');
       } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+        if (!cancelled) setLoading(false);
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [typeSlug, roleUpper, listViewsVersion, searchParams, setSearchParams]);
+  }, [typeSlug, roleUpper, listViewsVersion, viewParam]); // ✅ correct deps
 
   // ---------------------------------------------------------------------------
   // Derived state
@@ -347,9 +331,7 @@ export default function TypeList() {
     const dRoles = Array.isArray(cfg.default_roles)
       ? cfg.default_roles.map((r) => String(r || '').toUpperCase())
       : [];
-    if (dRoles.length) {
-      return dRoles.includes(roleUpper);
-    }
+    if (dRoles.length) return dRoles.includes(roleUpper);
     return !!activeView.is_default;
   }, [activeView, roleUpper]);
 
@@ -363,14 +345,16 @@ export default function TypeList() {
   // ---------------------------------------------------------------------------
   function handleClickNew() {
     if (!typeSlug) return;
-    // Use /admin prefix so it matches routes defined in App.jsx
     navigate(`/admin/content/${typeSlug}/new`);
   }
 
   function handleClickRow(row) {
-    // Prefer slug for navigation; fall back to id if slug is missing
     if (!typeSlug) return;
-    const slugOrId = row.slug || (row.data && (row.data.slug || row.data._slug)) || row.id || row._id;
+    const slugOrId =
+      row.slug ||
+      (row.data && (row.data.slug || row.data._slug)) ||
+      row.id ||
+      row._id;
     if (!slugOrId) return;
     navigate(`/admin/content/${typeSlug}/${slugOrId}`);
   }
@@ -384,9 +368,7 @@ export default function TypeList() {
     setActiveViewLabel(v.label || slug);
 
     const cfgCols = (v.config && v.config.columns) || [];
-    const cfgKeys = cfgCols
-      .map((c) => c.key)
-      .filter(Boolean);
+    const cfgKeys = cfgCols.map((c) => c.key).filter(Boolean);
 
     const keysFromRows = collectKeysFromRows(rows);
     const nextCols = cfgKeys.length ? cfgKeys : keysFromRows;
@@ -394,7 +376,6 @@ export default function TypeList() {
     setColumns(nextCols);
     saveListColumns(typeSlug, nextCols);
 
-    // Update ?view= in the URL for deep-linking
     const next = new URLSearchParams(searchParams);
     next.set('view', slug);
     setSearchParams(next);
@@ -406,7 +387,6 @@ export default function TypeList() {
   function renderCell(row, key) {
     let value;
     if (key === 'title') {
-      // Prefer title-ish fields for the main identifier. Fall back to nested data.
       value =
         row.title ||
         row.name ||
@@ -421,16 +401,10 @@ export default function TypeList() {
       value = undefined;
     }
 
-    if (value === null || typeof value === 'undefined') {
-      return '';
-    }
+    if (value === null || typeof value === 'undefined') return '';
 
-    // Booleans
-    if (typeof value === 'boolean') {
-      return value ? 'Yes' : 'No';
-    }
+    if (typeof value === 'boolean') return value ? 'Yes' : 'No';
 
-    // Arrays
     if (Array.isArray(value)) {
       if (looksLikeImageKey(key)) {
         const url = getImageUrlFromValue(value);
@@ -448,7 +422,6 @@ export default function TypeList() {
       return summarizeArray(value);
     }
 
-    // Objects
     if (value && typeof value === 'object') {
       if (looksLikeImageKey(key)) {
         const url = getImageUrlFromValue(value);
@@ -463,7 +436,6 @@ export default function TypeList() {
           );
         }
       }
-      // Generic object: try some common fields before falling back
       const labelish =
         value.title ||
         value.name ||
@@ -474,14 +446,11 @@ export default function TypeList() {
       return JSON.stringify(value);
     }
 
-    // Strings
     if (typeof value === 'string') {
-      // Date-ish
       if (looksLikeDateKey(key) || /^\d{4}-\d{2}-\d{2}/.test(value)) {
         return formatDate(value);
       }
 
-      // Image-ish string (URL)
       if (looksLikeImageKey(key) && /^https?:\/\//i.test(value)) {
         return (
           <img
@@ -493,21 +462,54 @@ export default function TypeList() {
         );
       }
 
-      // Description-ish: truncate
       if (looksLikeDescriptionKey(key)) {
         const max = 80;
-        if (value.length > max) {
-          return value.slice(0, max - 1) + '…';
-        }
+        if (value.length > max) return value.slice(0, max - 1) + '…';
         return value;
       }
 
       return value;
     }
 
-    // Numbers and anything else
     return String(value);
   }
+
+  // ---------------------------------------------------------------------------
+  // Column labels: show labels instead of slugs/keys in table header
+  // Priority:
+  // 1) Active list-view config column labels
+  // 2) Content type field labels
+  // 3) Built-in prettified labels
+  // ---------------------------------------------------------------------------
+  const labelByKey = useMemo(() => {
+    const map = {};
+
+    map.title = 'Title';
+    map.slug = 'Slug';
+    map.status = 'Status';
+    map.created_at = 'Created';
+    map.updated_at = 'Updated';
+
+    const ctFields = Array.isArray(contentType?.fields) ? contentType.fields : [];
+    for (const f of ctFields) {
+      if (!f) continue;
+      const key = f.field_key || f.key;
+      const label = f.label || f.name || f.title;
+      if (key && label) map[key] = label;
+    }
+
+    const cols = activeView?.config?.columns;
+    if (Array.isArray(cols)) {
+      for (const c of cols) {
+        if (!c) continue;
+        const key = c.key || c.field_key || c.field;
+        const label = c.label || c.name || c.title;
+        if (key && label) map[key] = label;
+      }
+    }
+
+    return map;
+  }, [contentType, activeView]);
 
   // ---------------------------------------------------------------------------
   // Render
@@ -519,19 +521,19 @@ export default function TypeList() {
           <h1 className="su-page-title">
             {contentType?.name || contentType?.label || 'Entries'}
           </h1>
-          <p className="su-page-subtitle">
-            Manage entries for this content type.
-          </p>
+          <p className="su-page-subtitle">Manage entries for this content type.</p>
+
           {activeViewLabel && (
             <p className="su-text-xs su-text-muted">
               Using view: <strong>{activeViewLabel}</strong>{' '}
               {activeViewIsDefaultForRole && '(default for this role)'}
             </p>
           )}
+
           {!activeViewLabel && listViews.length === 0 && (
             <p className="su-text-xs su-text-muted">
-              No list views configured yet for role {roleUpper}. Using a
-              fallback layout. You can customize columns in{' '}
+              No list views configured yet for role {roleUpper}. Using a fallback
+              layout. You can customize columns in{' '}
               <strong>Settings → List Views</strong>.
             </p>
           )}
@@ -555,9 +557,7 @@ export default function TypeList() {
             {listViews.map((v) => {
               const cfg = v.config || {};
               const dRoles = Array.isArray(cfg.default_roles)
-                ? cfg.default_roles.map((r) =>
-                    String(r || '').toUpperCase(),
-                  )
+                ? cfg.default_roles.map((r) => String(r || '').toUpperCase())
                 : [];
               const isDefaultForRole = dRoles.length
                 ? dRoles.includes(roleUpper)
@@ -568,15 +568,12 @@ export default function TypeList() {
                   key={v.slug}
                   type="button"
                   className={
-                    'su-chip' +
-                    (v.slug === activeViewSlug ? ' su-chip--active' : '')
+                    'su-chip' + (v.slug === activeViewSlug ? ' su-chip--active' : '')
                   }
                   onClick={() => handleChooseView(v.slug)}
                 >
                   {v.label || v.slug}
-                  {isDefaultForRole && (
-                    <span className="su-chip-badge">default</span>
-                  )}
+                  {isDefaultForRole && <span className="su-chip-badge">default</span>}
                 </button>
               );
             })}
@@ -587,11 +584,8 @@ export default function TypeList() {
       <div className="su-card">
         <div className="su-card-body">
           {loading && <p>Loading entries…</p>}
-          {error && (
-            <div className="su-alert su-alert-danger su-mb-md">
-              {error}
-            </div>
-          )}
+
+          {error && <div className="su-alert su-alert-danger su-mb-md">{error}</div>}
 
           {!loading && !rows.length && !error && (
             <p className="su-text-muted">
@@ -605,7 +599,7 @@ export default function TypeList() {
                 <thead>
                   <tr>
                     {displayColumns.map((key) => (
-                      <th key={key}>{key}</th>
+                      <th key={key}>{labelByKey[key] || key}</th>
                     ))}
                   </tr>
                 </thead>
