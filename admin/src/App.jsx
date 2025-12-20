@@ -16,7 +16,6 @@ import TaxonomiesPage from './pages/Taxonomies';
 import ContentIndex from './pages/Content';
 import TypeList from './pages/Content/TypeList';
 import TypeEditor from './pages/Content/Editor';
-import QuickBuilderShim from './quickbuilder/QuickBuilderShim';
 import LoginPage from './pages/Login';
 import PermissionsPage from './pages/Settings/Permissions';
 import RequirePermission from './components/RequirePermission';
