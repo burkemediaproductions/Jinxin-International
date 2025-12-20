@@ -202,11 +202,9 @@ router.post("/import", requireAdmin, async (req, res) => {
           null;
 
         const config = {
-          // Keep the existing keys your UI/components already use
+          ...cfg, 
           choices,
           relation: cfg?.relation ?? f?.relation ?? null,
-
-          // Keep these too (harmless if unused; helpful for future)
           optionsSource: cfg?.optionsSource ?? f?.optionsSource ?? (choices ? "inline" : null),
           options: cfg?.options ?? f?.options ?? null,
         };
