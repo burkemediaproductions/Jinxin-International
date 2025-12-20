@@ -12,6 +12,77 @@ import { api } from "../lib/api";
 
 /** ---------- Helpers ---------- */
 
+// ✅ NEW: lightweight modal (no external deps)
+function Modal({ open, title, onClose, children }) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") onClose?.();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose?.();
+      }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 9999,
+        background: "rgba(0,0,0,0.55)",
+        display: "grid",
+        placeItems: "center",
+        padding: 16,
+      }}
+    >
+      <div
+        style={{
+          width: "min(1100px, 96vw)",
+          height: "min(80vh, 820px)",
+          background: "var(--su-surface, #fff)",
+          borderRadius: 14,
+          boxShadow: "0 20px 50px rgba(0,0,0,0.25)",
+          overflow: "hidden",
+          display: "grid",
+          gridTemplateRows: "auto 1fr",
+        }}
+      >
+        <div
+          style={{
+            padding: "10px 12px",
+            borderBottom: "1px solid var(--su-border, #e5e7eb)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+          }}
+        >
+          <div style={{ fontWeight: 700, fontSize: 14, opacity: 0.9 }}>
+            {title || "Preview"}
+          </div>
+          <button
+            type="button"
+            className="su-btn"
+            onClick={onClose}
+            style={{ padding: "6px 10px" }}
+          >
+            Close
+          </button>
+        </div>
+
+        <div style={{ position: "relative" }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
 // Normalize choices to array of { value, label }
 function normalizeChoices(input) {
   if (!input) return [];
@@ -82,12 +153,6 @@ function getFieldConfig(field) {
   return cfg;
 }
 
-/**
- * Normalize "choices" across possible shapes:
- * - config.choices (preferred, current)
- * - config.options (legacy)
- * - field.choices / field.options (super legacy)
- */
 function getFieldChoices(field) {
   const cfg = getFieldConfig(field);
   return cfg.choices ?? cfg.options ?? field?.choices ?? field?.options ?? [];
@@ -117,7 +182,6 @@ function userLabel(user, display = "name_email") {
   const email = safeStr(user.email).trim();
   if (display === "email") return email || name || "";
   if (display === "name") return name || email || "";
-  // default "name_email"
   return name && email ? `${name} — ${email}` : name || email || "";
 }
 
@@ -131,6 +195,29 @@ function normalizeUserIds(value, multiple) {
   return "";
 }
 
+// ✅ NEW: determine preview behavior
+function getPreviewTypeFromFile(meta) {
+  const mime = (meta?.mime || "").toLowerCase();
+  const name = (meta?.name || "").toLowerCase();
+  const path = (meta?.path || "").toLowerCase();
+
+  const looksPdf =
+    mime.includes("pdf") || name.endsWith(".pdf") || path.endsWith(".pdf");
+  if (looksPdf) return "pdf";
+
+  const looksDocx =
+    mime.includes("officedocument.wordprocessingml") ||
+    name.endsWith(".docx") ||
+    path.endsWith(".docx");
+  if (looksDocx) return "docx";
+
+  const looksDoc =
+    mime.includes("msword") || name.endsWith(".doc") || path.endsWith(".doc");
+  if (looksDoc) return "doc"; // will try office viewer
+
+  return "other";
+}
+
 /** ------------------------------------------------------------------ */
 /** USER RELATIONSHIP FIELD (relation_user)                             */
 /** ------------------------------------------------------------------ */
@@ -138,7 +225,6 @@ function UserRelationField({ field, value, onChange, resolved }) {
   const cfg = getFieldConfig(field);
   const fieldKey = field?.key;
 
-  // Prefer server-provided userFields (Option B), fallback to field.config
   const serverUserFields =
     resolved?.userFields && fieldKey ? resolved.userFields[fieldKey] : null;
 
@@ -163,7 +249,6 @@ function UserRelationField({ field, value, onChange, resolved }) {
   const [results, setResults] = useState([]);
   const [err, setErr] = useState("");
 
-  // Debounced search (used for BOTH single + multi)
   useEffect(() => {
     let alive = true;
     const handle = setTimeout(async () => {
@@ -227,7 +312,6 @@ function UserRelationField({ field, value, onChange, resolved }) {
     }
   }
 
-  // Selected IDs
   const selectedIds = multiple
     ? (Array.isArray(normalized) ? normalized : [])
     : (normalized ? [normalized] : []);
@@ -237,60 +321,43 @@ function UserRelationField({ field, value, onChange, resolved }) {
     user: usersById[id] || results.find((u) => u.id === id) || null,
   }));
 
-  /**
-   * ✅ NEW: compact single-select UI when multiple=false
-   */
   if (!multiple) {
-    const selectedUser = normalized ? (usersById[normalized] || results.find((u) => u.id === normalized) || null) : null;
+    const selectedUser = normalized
+      ? (usersById[normalized] || results.find((u) => u.id === normalized) || null)
+      : null;
 
-    // When the dropdown is opened/focused, we want some options even if q is empty
-    // so we keep "open" true while interacting.
     return (
       <div style={{ display: "grid", gap: 8 }}>
-        {/* Optional: search box for narrowing results */}
         <input
           type="text"
           value={q}
           placeholder="Search users…"
           onChange={(e) => setQ(e.target.value)}
           onFocus={() => setOpen(true)}
-          onBlur={() => {
-            // Keep it open long enough for select click
-            setTimeout(() => setOpen(false), 150);
-          }}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
         />
 
         <select
           className="su-select"
           value={normalized || ""}
           onFocus={() => setOpen(true)}
-          onBlur={() => {
-            setTimeout(() => setOpen(false), 150);
-          }}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
           onChange={(e) => {
             const next = e.target.value;
-            if (next === "__clear__") {
-              onChange("");
-              return;
-            }
-            if (!next) {
-              onChange("");
-              return;
-            }
+            if (next === "__clear__") return onChange("");
+            if (!next) return onChange("");
             selectUser(next);
           }}
         >
           <option value="">— Select a user —</option>
           {normalized && <option value="__clear__">Clear selection</option>}
 
-          {/* If we already know selected user but it’s not in results, show it */}
           {normalized && selectedUser && !results.some((u) => u.id === normalized) && (
             <option value={normalized}>
               {userLabel(selectedUser, display) || selectedUser.email || normalized}
             </option>
           )}
 
-          {/* Results list */}
           {results.map((u) => (
             <option key={u.id} value={u.id}>
               {userLabel(u, display) || u.email || u.id}
@@ -308,12 +375,8 @@ function UserRelationField({ field, value, onChange, resolved }) {
     );
   }
 
-  /**
-   * Multi-select UI (chips + search) unchanged
-   */
   return (
     <div style={{ display: "grid", gap: 8 }}>
-      {/* Selected chips */}
       {selectedIds.length > 0 && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
           {selectedUsers.map(({ id, user }) => (
@@ -354,7 +417,6 @@ function UserRelationField({ field, value, onChange, resolved }) {
         </div>
       )}
 
-      {/* Search/picker */}
       <div style={{ position: "relative" }}>
         <input
           type="text"
@@ -362,10 +424,7 @@ function UserRelationField({ field, value, onChange, resolved }) {
           placeholder={"Search users… (add multiple)"}
           onChange={(e) => setQ(e.target.value)}
           onFocus={() => setOpen(true)}
-          onBlur={() => {
-            // Delay close so click on results works
-            setTimeout(() => setOpen(false), 150);
-          }}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
         />
 
         {open && (
@@ -438,7 +497,6 @@ function UserRelationField({ field, value, onChange, resolved }) {
         )}
       </div>
 
-      {/* Helper line */}
       <div style={{ fontSize: 11, opacity: 0.7 }}>
         Stores an array of user IDs.
         {roleFilter ? ` Filter: ${roleFilter}.` : ""}{" "}
@@ -783,9 +841,15 @@ function ImageField({ field, value, onChange, entryContext }) {
 
 /**
  * Generic file upload UI
+ * ✅ UPDATED: adds "Preview" modal for PDF/DOC/DOCX
  */
 function FileField({ field, value, onChange, entryContext, accept }) {
   const [busy, setBusy] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [previewErr, setPreviewErr] = useState("");
+
   const cfg = getFieldConfig(field);
 
   const visibility = fieldVisibility(field);
@@ -859,22 +923,94 @@ function FileField({ field, value, onChange, entryContext, accept }) {
     }
   }
 
+  // ✅ NEW: open inline preview
+  async function openPreview() {
+    setPreviewErr("");
+    setPreviewOpen(true);
+
+    const v = value || {};
+    const kind = getPreviewTypeFromFile(v);
+
+    if (!v?.bucket || !v?.path) {
+      setPreviewErr("No file found to preview.");
+      return;
+    }
+
+    setPreviewBusy(true);
+    try {
+      // Decide what URL the iframe can load:
+      // - public: use publicUrl
+      // - private: generate signed URL
+      let url = v.publicUrl;
+      if (!url) {
+        url = await getSignedUrl(v.bucket, v.path, 60 * 60); // 1 hour
+      }
+
+      if (!url) throw new Error("Could not generate a preview URL.");
+
+      if (kind === "pdf") {
+        setPreviewUrl(url);
+      } else if (kind === "docx" || kind === "doc") {
+        // Office online viewer embed
+        const office = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(
+          url
+        )}`;
+        setPreviewUrl(office);
+      } else {
+        setPreviewErr("Preview not available for this file type.");
+        setPreviewUrl("");
+      }
+    } catch (e) {
+      setPreviewErr(e?.message || "Failed to open preview");
+      setPreviewUrl("");
+    } finally {
+      setPreviewBusy(false);
+    }
+  }
+
+  const canPreview = (() => {
+    if (!value?.bucket || !value?.path) return false;
+    const kind = getPreviewTypeFromFile(value);
+    return kind === "pdf" || kind === "docx" || kind === "doc";
+  })();
+
   return (
     <div style={{ display: "grid", gap: 6 }}>
       <input placeholder="File name" value={value?.name || ""} readOnly />
-      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <input
           type="file"
           accept={accept}
           onChange={handleUpload}
           disabled={busy}
         />
+
+        {canPreview && (
+          <button type="button" className="su-btn primary" onClick={openPreview}>
+            Preview
+          </button>
+        )}
+
         {visibility === "private" && value?.path && (
           <button type="button" onClick={copySignedLink} disabled={busy}>
             Copy signed URL
           </button>
         )}
+
+        {visibility === "public" && value?.publicUrl && (
+          <a
+            className="su-btn"
+            href={value.publicUrl}
+            target="_blank"
+            rel="noreferrer"
+            style={{ textDecoration: "none" }}
+          >
+            Open in new tab
+          </a>
+        )}
       </div>
+
       {titleCfg.show && (
         <input
           placeholder={titleCfg.label}
@@ -900,9 +1036,46 @@ function FileField({ field, value, onChange, entryContext, accept }) {
           }
         />
       )}
+
       {visibility === "public" && value?.publicUrl && (
         <small>Public URL: {value.publicUrl}</small>
       )}
+
+      {/* ✅ Preview Modal */}
+      <Modal
+        open={previewOpen}
+        onClose={() => {
+          setPreviewOpen(false);
+          setPreviewUrl("");
+          setPreviewErr("");
+        }}
+        title={value?.name ? `Preview: ${value.name}` : "Preview"}
+      >
+        {previewBusy ? (
+          <div style={{ padding: 16, fontSize: 13, opacity: 0.75 }}>
+            Loading preview…
+          </div>
+        ) : previewErr ? (
+          <div style={{ padding: 16, fontSize: 13, color: "#b91c1c" }}>
+            {previewErr}
+          </div>
+        ) : previewUrl ? (
+          <iframe
+            title="Document preview"
+            src={previewUrl}
+            style={{
+              width: "100%",
+              height: "100%",
+              border: "none",
+              background: "#fff",
+            }}
+          />
+        ) : (
+          <div style={{ padding: 16, fontSize: 13, opacity: 0.75 }}>
+            No preview available.
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
@@ -917,13 +1090,11 @@ export default function FieldInput({
   relatedCache,
   choicesCache,
   entryContext,
-  resolved, // ✅ NEW
+  resolved,
 }) {
-  // ✅ CRITICAL: fix the crash (fieldType must exist)
   const fieldType = (field?.type || "text").toString().trim().toLowerCase();
   const cfg = getFieldConfig(field);
 
-  // ✅ NEW: user relationship field
   if (fieldType === "relation_user") {
     return (
       <UserRelationField
@@ -1354,6 +1525,5 @@ export default function FieldInput({
   if (fieldType === "name") return <NameField field={field} value={value} onChange={onChange} />;
   if (fieldType === "address") return <AddressField field={field} value={value} onChange={onChange} />;
 
-  // Fallback text
   return <input type="text" value={value ?? ""} onChange={(e) => onChange(e.target.value)} />;
 }
