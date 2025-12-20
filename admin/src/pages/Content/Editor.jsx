@@ -128,6 +128,10 @@ export default function Editor() {
   // Structured custom data from entries.data
   const [data, setData] = useState({});
 
+  // Caches used by FieldInput for relation fields and dynamic choice sources
+  const [relatedCache, setRelatedCache] = useState({});
+  const [choicesCache, setChoicesCache] = useState({});
+
   // ✅ NEW: resolved payload from API (Option B)
   // Shape: { usersById, userFields, ...future }
   const [resolved, setResolved] = useState(null);
@@ -280,6 +284,89 @@ export default function Editor() {
     () => buildLayoutFromView(contentType, editorViewConfig),
     [contentType, editorViewConfig]
   );
+
+  // ---------------------------------------------------------------------------
+  // Build caches for relation fields + dynamic choice sources
+  // (Safe: if endpoints don't exist, FieldInput will still render — just empty lists.)
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCaches() {
+      const fields = Array.isArray(contentType?.fields) ? contentType.fields : [];
+      if (!fields.length) {
+        setRelatedCache({});
+        setChoicesCache({});
+        return;
+      }
+
+      const relSlugs = new Set();
+      const choiceSlugs = new Set();
+
+      for (const f of fields) {
+        const type = String(f?.type || "").toLowerCase();
+        const cfg = (f?.config && typeof f.config === "object") ? f.config : {};
+
+        // relations
+        if (type === "relation" || type === "relationship") {
+          const slug = cfg?.relation?.contentType || cfg?.relatedType;
+          if (slug) relSlugs.add(String(slug));
+        }
+
+        // dynamic choices
+        const isChoice = ["radio", "dropdown", "checkbox", "select", "multiselect"].includes(type);
+        const sourceType = cfg?.sourceType;
+        const optionsSource = cfg?.optionsSource;
+        if (isChoice && (sourceType || optionsSource === "dynamic")) {
+          if (sourceType) choiceSlugs.add(String(sourceType));
+        }
+      }
+
+      async function fetchList(slug) {
+        // Try a few response shapes; ignore failures
+        const res = await api.get(`/api/content/${encodeURIComponent(slug)}?limit=200`);
+        const data = res?.data ?? res;
+        const list =
+          data?.entries ||
+          data?.items ||
+          (Array.isArray(data) ? data : null) ||
+          [];
+        return Array.isArray(list) ? list : [];
+      }
+
+      // Fetch relations
+      const nextRelated = {};
+      for (const slug of relSlugs) {
+        try {
+          nextRelated[slug] = await fetchList(slug);
+        } catch (e) {
+          // leave empty
+          nextRelated[slug] = [];
+        }
+      }
+
+      // Fetch choice sources
+      const nextChoices = {};
+      for (const slug of choiceSlugs) {
+        try {
+          nextChoices[slug] = await fetchList(slug);
+        } catch (e) {
+          nextChoices[slug] = [];
+        }
+      }
+
+      if (!cancelled) {
+        setRelatedCache(nextRelated);
+        setChoicesCache(nextChoices);
+      }
+    }
+
+    loadCaches();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [contentType?.id, contentType?.fields?.length]);
 
   // ---------------------------------------------------------------------------
   // Load existing entry (edit mode only)
@@ -792,8 +879,6 @@ export default function Editor() {
                           <FieldInput
                             field={def}
                             value={value}
-                            // ✅ NEW: pass resolved payload so relation_user can render labels / picker
-                            resolved={resolved}
                             onChange={(val) => {
                               if (!key) return;
                               setData((prev) => ({
@@ -801,6 +886,10 @@ export default function Editor() {
                                 [key]: val,
                               }));
                             }}
+                            relatedCache={relatedCache}
+                            choicesCache={choicesCache}
+                            resolved={resolved}
+                            entryContext={{ typeSlug, entryId }} 
                           />
 
                           {(def.help || def.description) && (
