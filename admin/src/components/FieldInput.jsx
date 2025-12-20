@@ -1080,6 +1080,400 @@ function FileField({ field, value, onChange, entryContext, accept }) {
   );
 }
 
+
+function coerceArray(v) {
+  return Array.isArray(v) ? v : [];
+}
+
+function isEmptyValue(v) {
+  if (v == null) return true;
+  if (typeof v === "string") return v.trim() === "";
+  if (Array.isArray(v)) return v.length === 0;
+  if (typeof v === "object") return Object.keys(v).length === 0;
+  return false;
+}
+
+function cmp(a, b) {
+  const sa = a == null ? "" : String(a);
+  const sb = b == null ? "" : String(b);
+  return { sa, sb };
+}
+
+function evalRule({ row, rule }) {
+  const ifKey = String(rule?.ifKey || "").trim();
+  const op = String(rule?.op || "equals").trim();
+  const val = rule?.value;
+
+  const actual = ifKey ? row?.[ifKey] : undefined;
+
+  if (op === "truthy") return !isEmptyValue(actual);
+  if (op === "falsy") return isEmptyValue(actual);
+
+  const { sa, sb } = cmp(actual, val);
+
+  // numeric compare if both parse
+  const na = Number(actual);
+  const nb = Number(val);
+  const bothNum = !Number.isNaN(na) && !Number.isNaN(nb);
+
+  switch (op) {
+    case "equals":
+      return sa === sb;
+    case "not_equals":
+      return sa !== sb;
+    case "contains":
+      return sa.toLowerCase().includes(sb.toLowerCase());
+    case "not_contains":
+      return !sa.toLowerCase().includes(sb.toLowerCase());
+    case "gt":
+      return bothNum ? na > nb : sa > sb;
+    case "gte":
+      return bothNum ? na >= nb : sa >= sb;
+    case "lt":
+      return bothNum ? na < nb : sa < sb;
+    case "lte":
+      return bothNum ? na <= nb : sa <= sb;
+    default:
+      return sa === sb;
+  }
+}
+
+function computeSubfieldVisibility({ subfields, rules, row }) {
+  // default: all visible
+  const vis = {};
+  for (const sf of subfields) {
+    const k = String(sf?.field_key || sf?.key || "").trim();
+    if (k) vis[k] = true;
+  }
+
+  const list = Array.isArray(rules) ? rules : [];
+  for (const r of list) {
+    const ok = evalRule({ row, rule: r });
+    if (!ok) continue;
+
+    const targets = Array.isArray(r?.targets) ? r.targets : [];
+    const action = String(r?.action || "show");
+    for (const t of targets) {
+      const k = String(t || "").trim();
+      if (!k) continue;
+      if (action === "hide") vis[k] = false;
+      else vis[k] = true;
+    }
+  }
+
+  return vis;
+}
+
+function applyRowLabelTemplate(tpl, row, index) {
+  const s = String(tpl || "").trim();
+  if (!s) return `Row ${index + 1}`;
+  return s.replace(/\{#\}/g, String(index + 1)).replace(/\{([^}]+)\}/g, (_, k) => {
+    const key = String(k || "").trim();
+    if (!key) return "";
+    const v = row?.[key];
+    return v == null ? "" : String(v);
+  });
+}
+
+function RepeaterField({
+  field,
+  value,
+  onChange,
+  entryContext,
+  resolved,
+  relatedCache,
+  choicesCache,
+  depth = 1,
+}) {
+  const cfg = getFieldConfig(field);
+  const subfields = Array.isArray(cfg.subfields) ? cfg.subfields : [];
+
+  const rows = coerceArray(value).map((r) => (r && typeof r === "object" ? r : {}));
+
+  const minRows =
+    Number.isFinite(cfg.minRows) ? Number(cfg.minRows) : null;
+  const maxRows =
+    Number.isFinite(cfg.maxRows) ? Number(cfg.maxRows) : null;
+
+  const addLabel = cfg.addLabel || "Add row";
+  const layout = cfg.layout || "cards"; // cards | table
+  const maxDepth = Number.isFinite(cfg.maxDepth) ? Number(cfg.maxDepth) : 2;
+  const rowLabelTemplate = cfg.rowLabelTemplate || "";
+
+  const rules = Array.isArray(cfg.rules) ? cfg.rules : [];
+
+  function setRows(next) {
+    onChange(next);
+  }
+
+  function setRow(i, patch) {
+    const next = [...rows];
+    const base = next[i] && typeof next[i] === "object" ? next[i] : {};
+    next[i] = { ...base, ...patch };
+    setRows(next);
+  }
+
+  function addRow() {
+    if (maxRows != null && rows.length >= maxRows) return;
+    setRows([...(rows || []), {}]);
+  }
+
+  function removeRow(i) {
+    if (minRows != null && rows.length <= minRows) return;
+    setRows(rows.filter((_, idx) => idx !== i));
+  }
+
+  function duplicateRow(i) {
+    if (maxRows != null && rows.length >= maxRows) return;
+    const next = [...rows];
+    const clone = JSON.parse(JSON.stringify(next[i] || {}));
+    next.splice(i + 1, 0, clone);
+    setRows(next);
+  }
+
+  // controlled nesting: if a subfield is repeater but depth >= maxDepth, we show a warning
+  function canNestMore() {
+    return depth < maxDepth;
+  }
+
+  function renderSubfieldCell({ sf, rowIndex, row, hideLabel }) {
+    const key = String(sf?.field_key || sf?.key || "").trim();
+    if (!key) return null;
+
+    const visibility = computeSubfieldVisibility({ subfields, rules, row });
+    if (visibility[key] === false) return null;
+
+    const def = { ...sf, key };
+
+    // enforce nesting depth
+    const sfType = String(def.type || "text").toLowerCase();
+    if (sfType === "repeater" && !canNestMore()) {
+      return (
+        <div
+          key={key}
+          style={{
+            border: "1px solid rgba(0,0,0,0.08)",
+            borderRadius: 12,
+            padding: 10,
+            background: "rgba(0,0,0,0.02)",
+            fontSize: 12,
+            opacity: 0.8,
+          }}
+        >
+          Nested repeater disabled at depth {depth}. Increase “Max nesting depth” on the parent repeater config.
+        </div>
+      );
+    }
+
+    const val = row?.[key];
+
+    return (
+      <div key={key} style={{ display: "grid", gap: 6 }}>
+        {!hideLabel && (
+          <label style={{ fontSize: 13, fontWeight: 600 }}>
+            {def.label || key}
+          </label>
+        )}
+
+        <FieldInput
+          field={def}
+          value={val}
+          onChange={(nextVal) => setRow(rowIndex, { [key]: nextVal })}
+          entryContext={entryContext}
+          resolved={resolved}
+          relatedCache={relatedCache}
+          choicesCache={choicesCache}
+          // ✅ pass depth to nested repeater via config (we read it in FieldInput when type===repeater)
+          _repeaterDepth={depth + 1}
+        />
+
+        {!hideLabel && def.help_text ? (
+          <div style={{ fontSize: 12, opacity: 0.7 }}>{def.help_text}</div>
+        ) : null}
+      </div>
+    );
+  }
+
+  // Cards layout
+  if (layout !== "table") {
+    return (
+      <div style={{ display: "grid", gap: 10 }}>
+        {rows.map((row, rowIndex) => {
+          const label = applyRowLabelTemplate(rowLabelTemplate, row, rowIndex);
+
+          return (
+            <div
+              key={rowIndex}
+              style={{
+                border: "1px solid var(--su-border, #e5e7eb)",
+                borderRadius: 12,
+                padding: 10,
+                background: "var(--su-surface, #fff)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}>
+                  {label}
+                </div>
+
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <button
+                    type="button"
+                    className="su-btn"
+                    onClick={() => duplicateRow(rowIndex)}
+                    disabled={maxRows != null && rows.length >= maxRows}
+                    style={{ padding: "6px 10px" }}
+                  >
+                    Duplicate
+                  </button>
+                  <button
+                    type="button"
+                    className="su-btn"
+                    onClick={() => removeRow(rowIndex)}
+                    disabled={minRows != null && rows.length <= minRows}
+                    style={{ padding: "6px 10px" }}
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+                {subfields.map((sf) =>
+                  renderSubfieldCell({
+                    sf,
+                    rowIndex,
+                    row,
+                    hideLabel: false,
+                  })
+                )}
+              </div>
+            </div>
+          );
+        })}
+
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button
+            type="button"
+            className="su-btn primary"
+            onClick={addRow}
+            disabled={maxRows != null && rows.length >= maxRows}
+          >
+            {addLabel}
+          </button>
+          <div style={{ fontSize: 11, opacity: 0.7 }}>
+            {minRows != null ? `Min ${minRows}. ` : ""}
+            {maxRows != null ? `Max ${maxRows}. ` : ""}
+            {rows.length} row{rows.length === 1 ? "" : "s"}.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Table layout
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      <div style={{ overflowX: "auto" }}>
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-200 text-left">
+              <th className="py-2 pr-2" style={{ minWidth: 140 }}>
+                Row
+              </th>
+              {subfields
+                .map((sf) => ({
+                  key: String(sf?.field_key || sf?.key || "").trim(),
+                  label: sf?.label,
+                }))
+                .filter((x) => x.key)
+                .map((col) => (
+                  <th key={col.key} className="py-2 pr-2" style={{ minWidth: 180 }}>
+                    {col.label || col.key}
+                  </th>
+                ))}
+              <th className="py-2 pr-2 text-right" style={{ minWidth: 160 }}>
+                Actions
+              </th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {rows.map((row, rowIndex) => {
+              const label = applyRowLabelTemplate(rowLabelTemplate, row, rowIndex);
+
+              return (
+                <tr key={rowIndex} className="border-b border-gray-100 align-top">
+                  <td className="py-2 pr-2" style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}>
+                    {label}
+                  </td>
+
+                  {subfields
+                    .map((sf) => ({
+                      sf,
+                      key: String(sf?.field_key || sf?.key || "").trim(),
+                    }))
+                    .filter((x) => x.key)
+                    .map(({ sf, key }) => (
+                      <td key={key} className="py-2 pr-2">
+                        {renderSubfieldCell({
+                          sf,
+                          rowIndex,
+                          row,
+                          hideLabel: true,
+                        })}
+                      </td>
+                    ))}
+
+                  <td className="py-2 pr-2 text-right">
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                      <button
+                        type="button"
+                        className="su-btn"
+                        onClick={() => duplicateRow(rowIndex)}
+                        disabled={maxRows != null && rows.length >= maxRows}
+                        style={{ padding: "6px 10px" }}
+                      >
+                        Duplicate
+                      </button>
+                      <button
+                        type="button"
+                        className="su-btn"
+                        onClick={() => removeRow(rowIndex)}
+                        disabled={minRows != null && rows.length <= minRows}
+                        style={{ padding: "6px 10px" }}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <button
+          type="button"
+          className="su-btn primary"
+          onClick={addRow}
+          disabled={maxRows != null && rows.length >= maxRows}
+        >
+          {addLabel}
+        </button>
+        <div style={{ fontSize: 11, opacity: 0.7 }}>
+          {minRows != null ? `Min ${minRows}. ` : ""}
+          {maxRows != null ? `Max ${maxRows}. ` : ""}
+          {rows.length} row{rows.length === 1 ? "" : "s"}.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 /**
  * FieldInput
  */
@@ -1091,6 +1485,7 @@ export default function FieldInput({
   choicesCache,
   entryContext,
   resolved,
+ _repeaterDepth,
 }) {
   const fieldType = (field?.type || "text").toString().trim().toLowerCase();
   const cfg = getFieldConfig(field);
@@ -1106,6 +1501,25 @@ export default function FieldInput({
     );
   }
 
+  // Repeater
+  if (fieldType === "repeater") {
+    const depth = typeof _repeaterDepth === "number" ? _repeaterDepth : 1;  
+    return (
+      <RepeaterField
+        field={field}
+        value={value}
+        onChange={onChange}
+        entryContext={entryContext}
+        resolved={resolved}
+        relatedCache={relatedCache}
+        choicesCache={choicesCache}
+        depth={depth}
+      />
+    );
+  }
+
+
+  
   // ---- Dynamic choice helpers ----
   const isChoice = ["radio", "dropdown", "checkbox", "select", "multiselect"].includes(fieldType);
   const isDynamic =
