@@ -147,7 +147,8 @@ function UserRelationField({ field, value, onChange, resolved }) {
   const roleFilter =
     (serverUserFields?.roleFilter || cfg?.roleFilter || "").toString().trim();
   const onlyActive =
-    serverUserFields?.onlyActive ?? (cfg?.onlyActive === undefined ? true : !!cfg.onlyActive);
+    serverUserFields?.onlyActive ??
+    (cfg?.onlyActive === undefined ? true : !!cfg.onlyActive);
 
   const usersById = resolved?.usersById || {};
 
@@ -162,7 +163,7 @@ function UserRelationField({ field, value, onChange, resolved }) {
   const [results, setResults] = useState([]);
   const [err, setErr] = useState("");
 
-  // Debounced search
+  // Debounced search (used for BOTH single + multi)
   useEffect(() => {
     let alive = true;
     const handle = setTimeout(async () => {
@@ -174,7 +175,7 @@ function UserRelationField({ field, value, onChange, resolved }) {
         params.set("q", q || "");
         if (roleFilter) params.set("role", roleFilter);
         params.set("onlyActive", onlyActive ? "true" : "false");
-        params.set("limit", "20");
+        params.set("limit", "50");
 
         const res = await api.get(`/api/users/picker?${params.toString()}`);
         const list = res?.users || res?.data?.users || [];
@@ -187,7 +188,7 @@ function UserRelationField({ field, value, onChange, resolved }) {
       } finally {
         if (alive) setBusy(false);
       }
-    }, 250);
+    }, 200);
 
     return () => {
       alive = false;
@@ -226,7 +227,7 @@ function UserRelationField({ field, value, onChange, resolved }) {
     }
   }
 
-  // Build selected list for UI
+  // Selected IDs
   const selectedIds = multiple
     ? (Array.isArray(normalized) ? normalized : [])
     : (normalized ? [normalized] : []);
@@ -236,6 +237,80 @@ function UserRelationField({ field, value, onChange, resolved }) {
     user: usersById[id] || results.find((u) => u.id === id) || null,
   }));
 
+  /**
+   * ✅ NEW: compact single-select UI when multiple=false
+   */
+  if (!multiple) {
+    const selectedUser = normalized ? (usersById[normalized] || results.find((u) => u.id === normalized) || null) : null;
+
+    // When the dropdown is opened/focused, we want some options even if q is empty
+    // so we keep "open" true while interacting.
+    return (
+      <div style={{ display: "grid", gap: 8 }}>
+        {/* Optional: search box for narrowing results */}
+        <input
+          type="text"
+          value={q}
+          placeholder="Search users…"
+          onChange={(e) => setQ(e.target.value)}
+          onFocus={() => setOpen(true)}
+          onBlur={() => {
+            // Keep it open long enough for select click
+            setTimeout(() => setOpen(false), 150);
+          }}
+        />
+
+        <select
+          className="su-select"
+          value={normalized || ""}
+          onFocus={() => setOpen(true)}
+          onBlur={() => {
+            setTimeout(() => setOpen(false), 150);
+          }}
+          onChange={(e) => {
+            const next = e.target.value;
+            if (next === "__clear__") {
+              onChange("");
+              return;
+            }
+            if (!next) {
+              onChange("");
+              return;
+            }
+            selectUser(next);
+          }}
+        >
+          <option value="">— Select a user —</option>
+          {normalized && <option value="__clear__">Clear selection</option>}
+
+          {/* If we already know selected user but it’s not in results, show it */}
+          {normalized && selectedUser && !results.some((u) => u.id === normalized) && (
+            <option value={normalized}>
+              {userLabel(selectedUser, display) || selectedUser.email || normalized}
+            </option>
+          )}
+
+          {/* Results list */}
+          {results.map((u) => (
+            <option key={u.id} value={u.id}>
+              {userLabel(u, display) || u.email || u.id}
+            </option>
+          ))}
+        </select>
+
+        <div style={{ fontSize: 11, opacity: 0.7 }}>
+          Stores a user ID.
+          {roleFilter ? ` Filter: ${roleFilter}.` : ""}{" "}
+          {onlyActive ? "Active only." : "Includes inactive."}{" "}
+          {busy ? "Searching…" : err ? err : ""}
+        </div>
+      </div>
+    );
+  }
+
+  /**
+   * Multi-select UI (chips + search) unchanged
+   */
   return (
     <div style={{ display: "grid", gap: 8 }}>
       {/* Selected chips */}
@@ -284,7 +359,7 @@ function UserRelationField({ field, value, onChange, resolved }) {
         <input
           type="text"
           value={q}
-          placeholder={multiple ? "Search users… (add multiple)" : "Search users…"}
+          placeholder={"Search users… (add multiple)"}
           onChange={(e) => setQ(e.target.value)}
           onFocus={() => setOpen(true)}
           onBlur={() => {
@@ -319,43 +394,53 @@ function UserRelationField({ field, value, onChange, resolved }) {
                 : "No matches"}
             </div>
 
-            {!busy && !err && results.map((u) => {
-              const label = userLabel(u, display) || u.email || u.id;
-              const selected = isSelected(u.id);
-              return (
-                <button
-                  key={u.id}
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => selectUser(u.id)}
-                  disabled={selected}
-                  style={{
-                    width: "100%",
-                    textAlign: "left",
-                    padding: "10px 10px",
-                    border: "none",
-                    borderTop: "1px solid rgba(0,0,0,0.06)",
-                    background: selected ? "rgba(59,130,246,0.08)" : "transparent",
-                    cursor: selected ? "not-allowed" : "pointer",
-                    fontSize: 13,
-                  }}
-                >
-                  <div style={{ fontWeight: 600, opacity: selected ? 0.7 : 1 }}>
-                    {label}
-                  </div>
-                  <div style={{ fontSize: 11, opacity: 0.65 }}>
-                    {u.role ? `${u.role} · ` : ""}{u.status || ""}
-                  </div>
-                </button>
-              );
-            })}
+            {!busy &&
+              !err &&
+              results.map((u) => {
+                const label = userLabel(u, display) || u.email || u.id;
+                const selected = isSelected(u.id);
+                return (
+                  <button
+                    key={u.id}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => selectUser(u.id)}
+                    disabled={selected}
+                    style={{
+                      width: "100%",
+                      textAlign: "left",
+                      padding: "10px 10px",
+                      border: "none",
+                      borderTop: "1px solid rgba(0,0,0,0.06)",
+                      background: selected
+                        ? "rgba(59,130,246,0.08)"
+                        : "transparent",
+                      cursor: selected ? "not-allowed" : "pointer",
+                      fontSize: 13,
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontWeight: 600,
+                        opacity: selected ? 0.7 : 1,
+                      }}
+                    >
+                      {label}
+                    </div>
+                    <div style={{ fontSize: 11, opacity: 0.65 }}>
+                      {u.role ? `${u.role} · ` : ""}
+                      {u.status || ""}
+                    </div>
+                  </button>
+                );
+              })}
           </div>
         )}
       </div>
 
       {/* Helper line */}
       <div style={{ fontSize: 11, opacity: 0.7 }}>
-        Stores {multiple ? "an array of user IDs" : "a user ID"}.
+        Stores an array of user IDs.
         {roleFilter ? ` Filter: ${roleFilter}.` : ""}{" "}
         {onlyActive ? "Active only." : "Includes inactive."}
       </div>
@@ -1038,9 +1123,6 @@ export default function FieldInput({
 
   // ---- Relation ----
   if (fieldType === "relation" || fieldType === "relationship") {
-    // Supports both:
-    // - cfg.relation = { kind:'one'|'many', contentType:'users' }
-    // - legacy cfg.relatedType / cfg.multiple
     const rel = cfg?.relation?.contentType || cfg?.relatedType;
     const allowMultiple =
       cfg?.relation?.kind === "many" || !!cfg?.multiple;
