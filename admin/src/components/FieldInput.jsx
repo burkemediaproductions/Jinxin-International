@@ -1853,7 +1853,15 @@ export default function FieldInput({
 
   // ---- Relation ----
   if (fieldType === "relation" || fieldType === "relationship") {
-    const rel = cfg?.relation?.contentType || cfg?.relatedType;
+    const rel =
+      cfg?.relation?.contentType ||
+      cfg?.relation?.slug ||
+      cfg?.relatedType ||
+      cfg?.contentType ||
+      cfg?.targetType ||
+      cfg?.target ||
+      field?.relatedType ||
+      field?.contentType;
     const allowMultiple =
       cfg?.relation?.kind === "many" || !!cfg?.multiple;
 
