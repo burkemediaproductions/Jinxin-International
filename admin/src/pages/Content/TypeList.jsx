@@ -3,6 +3,9 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { useSettings } from '../../context/SettingsContext';
 
+// ✅ NEW: list/widget display helper (handles repeaters, nested repeaters, etc.)
+import { formatFieldValueForList } from '../../components/FieldInput';
+
 // Built-in columns that exist on every entry coming from the API
 const BUILTIN_KEYS = ['title', 'slug', 'status', 'created_at', 'updated_at'];
 
@@ -402,6 +405,18 @@ export default function TypeList() {
     }
 
     if (value === null || typeof value === 'undefined') return '';
+
+    // ✅ NEW: If this key maps to an actual field definition, use the canonical
+    // formatter (repeaters, nested repeaters, relations, etc.) for list/widget display.
+    if (Array.isArray(contentType?.fields)) {
+      const fieldDef =
+        contentType.fields.find((f) => (f?.field_key || f?.key) === key) || null;
+
+      if (fieldDef) {
+        const display = formatFieldValueForList(fieldDef, value);
+        if (display !== '') return display;
+      }
+    }
 
     if (typeof value === 'boolean') return value ? 'Yes' : 'No';
 
