@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"; 
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../../lib/api";
 import FieldInput from "../../components/FieldInput";
@@ -103,6 +103,36 @@ function buildLayoutFromView(contentType, viewConfig) {
   }
 
   return sections;
+}
+
+// ✅ helper: normalize field config across legacy config/options shapes
+function getFieldConfig(def) {
+  const cfg =
+    (def?.config && typeof def.config === "object" ? def.config : null) ||
+    (def?.options && typeof def.options === "object" ? def.options : null) ||
+    {};
+  return cfg;
+}
+
+// ✅ helper: read relationship target slug across common shapes
+function getRelationTargetSlug(def) {
+  const cfg = getFieldConfig(def);
+  return (
+    cfg?.relation?.contentType ||
+    cfg?.relatedType ||
+    cfg?.contentType ||
+    null
+  );
+}
+
+// ✅ helper: detect dynamic choice source slug
+function getDynamicChoiceSourceSlug(def) {
+  const cfg = getFieldConfig(def);
+  const sourceType = cfg?.sourceType || cfg?.source_type || null;
+  const optionsSource = cfg?.optionsSource || cfg?.options_source || null;
+  if (sourceType) return String(sourceType);
+  if (optionsSource === "dynamic" && cfg?.source) return String(cfg.source);
+  return null;
 }
 
 export default function Editor() {
@@ -286,8 +316,11 @@ export default function Editor() {
   );
 
   // ---------------------------------------------------------------------------
-  // Build caches for relation fields + dynamic choice sources
-  // (Safe: if endpoints don't exist, FieldInput will still render — just empty lists.)
+  // ✅ Build caches for relationship fields + dynamic choice sources
+  // IMPORTANT FIX:
+  // - Read config from BOTH def.config and def.options
+  // - Support cfg.relatedType + cfg.relation.contentType
+  // - Also support dynamic choices using same config normalization
   // ---------------------------------------------------------------------------
   useEffect(() => {
     let cancelled = false;
@@ -305,32 +338,38 @@ export default function Editor() {
 
       for (const f of fields) {
         const type = String(f?.type || "").toLowerCase();
-        const cfg = (f?.config && typeof f.config === "object") ? f.config : {};
 
         // relations
         if (type === "relation" || type === "relationship") {
-          const slug = cfg?.relation?.contentType || cfg?.relatedType;
+          const slug = getRelationTargetSlug(f);
           if (slug) relSlugs.add(String(slug));
         }
 
         // dynamic choices
         const isChoice = ["radio", "dropdown", "checkbox", "select", "multiselect"].includes(type);
-        const sourceType = cfg?.sourceType;
-        const optionsSource = cfg?.optionsSource;
-        if (isChoice && (sourceType || optionsSource === "dynamic")) {
-          if (sourceType) choiceSlugs.add(String(sourceType));
+        if (isChoice) {
+          const cfg = getFieldConfig(f);
+          const sourceType = cfg?.sourceType || cfg?.source_type;
+          const optionsSource = cfg?.optionsSource || cfg?.options_source;
+
+          if (sourceType || optionsSource === "dynamic") {
+            const sourceSlug = getDynamicChoiceSourceSlug(f);
+            if (sourceSlug) choiceSlugs.add(String(sourceSlug));
+          }
         }
       }
 
       async function fetchList(slug) {
-        // Try a few response shapes; ignore failures
+        // Try a few response shapes
         const res = await api.get(`/api/content/${encodeURIComponent(slug)}?limit=200`);
         const data = res?.data ?? res;
+
         const list =
           data?.entries ||
           data?.items ||
           (Array.isArray(data) ? data : null) ||
           [];
+
         return Array.isArray(list) ? list : [];
       }
 
@@ -340,7 +379,6 @@ export default function Editor() {
         try {
           nextRelated[slug] = await fetchList(slug);
         } catch (e) {
-          // leave empty
           nextRelated[slug] = [];
         }
       }
@@ -366,7 +404,7 @@ export default function Editor() {
     return () => {
       cancelled = true;
     };
-  }, [contentType?.id, contentType?.fields?.length]);
+  }, [contentType?.id]);
 
   // ---------------------------------------------------------------------------
   // Load existing entry (edit mode only)
@@ -447,12 +485,6 @@ export default function Editor() {
           };
           delete entryData.undefined;
         }
-
-        // 🔍 DEBUG
-        console.log("[Editor] Loaded entry from API", { typeSlug, entryId, entry });
-        console.log("[Editor] entry._resolved from API", entry?._resolved);
-        console.log("[Editor] entry.data from API", rawData);
-        console.log("[Editor] entryData after merge/flatten", entryData);
 
         // Derive core fields, but prefer the top-level columns if present
         const loadedTitle = entry.title ?? entryData.title ?? entryData._title ?? "";
@@ -889,7 +921,7 @@ export default function Editor() {
                             relatedCache={relatedCache}
                             choicesCache={choicesCache}
                             resolved={resolved}
-                            entryContext={{ typeSlug, entryId }} 
+                            entryContext={{ typeSlug, entryId }}
                           />
 
                           {(def.help || def.description) && (
@@ -935,7 +967,6 @@ export default function Editor() {
       <div className="su-card">
         <h2 style={{ marginTop: 0, marginBottom: 12 }}>Preview</h2>
 
-        {/* "Physical" preview */}
         <div
           style={{
             borderRadius: 10,
@@ -975,7 +1006,6 @@ export default function Editor() {
           </div>
         </div>
 
-        {/* JSON preview */}
         <h3 style={{ marginTop: 0, marginBottom: 8, fontSize: 14 }}>
           Raw JSON (<code>entries.data</code>)
         </h3>
