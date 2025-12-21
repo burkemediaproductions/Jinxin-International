@@ -1473,6 +1473,151 @@ function RepeaterField({
   );
 }
 
+/** ------------------------------------------------------------------ */
+/** LIST / WIDGET DISPLAY HELPER                                        */
+/** ------------------------------------------------------------------ */
+/**
+ * Used by list views + widgets to display a field value as text.
+ * Handles repeaters (including nested repeaters) safely.
+ *
+ * Usage:
+ *   import { formatFieldValueForList } from "../components/FieldInput";
+ *   const display = formatFieldValueForList(fieldDef, entry.data?.[fieldKey]);
+ */
+export function formatFieldValueForList(fieldDef, rawValue, opts = {}) {
+  const type = (fieldDef?.type || "text").toString().trim().toLowerCase();
+  const labelLimit = Number.isFinite(opts.labelLimit) ? opts.labelLimit : 3; // repeater rows shown
+  const depth = Number.isFinite(opts.depth) ? opts.depth : 1;
+  const maxDepth = Number.isFinite(opts.maxDepth) ? opts.maxDepth : 2;
+
+  const empty = (v) =>
+    v == null ||
+    (typeof v === "string" && v.trim() === "") ||
+    (Array.isArray(v) && v.length === 0) ||
+    (typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 0);
+
+  if (empty(rawValue)) return "";
+
+  // --- Repeaters ---
+  if (type === "repeater") {
+    const cfg = getFieldConfig(fieldDef);
+    const subfields = Array.isArray(cfg.subfields) ? cfg.subfields : [];
+    const rows = Array.isArray(rawValue) ? rawValue : [];
+
+    if (!rows.length) return "";
+
+    // Prevent infinite recursion if someone nests repeaters deeper than intended
+    if (depth > maxDepth) return `(${rows.length} rows)`;
+
+    const pickKeys = subfields
+      .map((sf) => String(sf?.field_key || sf?.key || "").trim())
+      .filter(Boolean);
+
+    const summarizeRow = (row, idx) => {
+      const r = row && typeof row === "object" ? row : {};
+      if (!pickKeys.length) return `Row ${idx + 1}`;
+
+      // Grab first few meaningful values in the row
+      const parts = [];
+      for (const k of pickKeys) {
+        const sf = subfields.find(
+          (x) => String(x?.field_key || x?.key || "").trim() === k
+        );
+        const v = r?.[k];
+        if (empty(v)) continue;
+
+        const piece = formatFieldValueForList(
+          { ...(sf || {}), key: k },
+          v,
+          { labelLimit: 2, depth: depth + 1, maxDepth }
+        );
+
+        if (piece) parts.push(piece);
+        if (parts.length >= 2) break; // keep rows compact
+      }
+
+      return parts.length ? parts.join(" · ") : `Row ${idx + 1}`;
+    };
+
+    const shown = rows.slice(0, labelLimit).map(summarizeRow);
+    const more = rows.length - shown.length;
+
+    return more > 0 ? `${shown.join(" | ")} | +${more} more` : shown.join(" | ");
+  }
+
+  // --- Choices / multi-choices ---
+  if (["checkbox", "multiselect"].includes(type)) {
+    const arr = Array.isArray(rawValue)
+      ? rawValue
+      : typeof rawValue === "string"
+      ? rawValue
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
+    return arr.join(", ");
+  }
+
+  if (["dropdown", "select", "radio"].includes(type)) {
+    return rawValue == null ? "" : String(rawValue);
+  }
+
+  // --- Relation types ---
+  if (type === "relation_user") {
+    // Stored as user ID or array of IDs
+    if (Array.isArray(rawValue)) return rawValue.map(String).join(", ");
+    return String(rawValue);
+  }
+
+  if (type === "relation" || type === "relationship") {
+    if (Array.isArray(rawValue)) return rawValue.map(String).join(", ");
+    return String(rawValue);
+  }
+
+  // --- Common objects ---
+  if (type === "name" && rawValue && typeof rawValue === "object") {
+    const v = rawValue || {};
+    const parts = [v.title, v.first, v.middle, v.last, v.suffix]
+      .map((x) => (x == null ? "" : String(x).trim()))
+      .filter(Boolean);
+    return parts.join(" ");
+  }
+
+  if (type === "address" && rawValue && typeof rawValue === "object") {
+    const v = rawValue || {};
+    const parts = [v.line1, v.line2, v.city, v.state, v.postal, v.country]
+      .map((x) => (x == null ? "" : String(x).trim()))
+      .filter(Boolean);
+    return parts.join(", ");
+  }
+
+  if (["file", "document", "image", "video"].includes(type)) {
+    if (rawValue && typeof rawValue === "object") {
+      return rawValue.name || rawValue.title || rawValue.path || "";
+    }
+    return "";
+  }
+
+  if (type === "color" && rawValue && typeof rawValue === "object") {
+    return rawValue.hex || "";
+  }
+
+  if (type === "json") {
+    try {
+      return typeof rawValue === "string"
+        ? rawValue
+        : JSON.stringify(rawValue);
+    } catch {
+      return "[json]";
+    }
+  }
+
+  if (typeof rawValue === "boolean") return rawValue ? "Yes" : "No";
+
+  // --- Default ---
+  return String(rawValue);
+}
+
 
 /**
  * FieldInput
