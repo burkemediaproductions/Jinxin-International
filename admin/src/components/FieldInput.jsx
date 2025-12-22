@@ -1873,6 +1873,18 @@ if (fieldType === "relation" || fieldType === "relationship") {
     (relRaw?.id && relatedCache?.[String(relRaw.id)]) ||
     [];
 
+  // Debug (optional): in browser console run `window.__suDebugRelations = true` then refresh
+  if (typeof window !== "undefined" && window.__suDebugRelations) {
+    // eslint-disable-next-line no-console
+    console.log("[relation] field", field?.field_key || field?.key, {
+      relRaw,
+      relKey,
+      cacheKeys: Object.keys(relatedCache || {}),
+      listCount: Array.isArray(list) ? list.length : 0,
+    });
+  }
+
+
   function labelFor(ent) {
     return ent?.data?.title || ent?.title || ent?.id;
   }
@@ -2102,6 +2114,3 @@ if (fieldType === "relation" || fieldType === "relationship") {
 
   return <input type="text" value={value ?? ""} onChange={(e) => onChange(e.target.value)} />;
 }
-
-console.log("[relation] field", field?.field_key || field?.key, "relRaw:", relRaw, "relKey:", relKey);
-console.log("[relation] cache keys:", Object.keys(relatedCache || {}));
