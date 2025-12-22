@@ -1651,6 +1651,157 @@ export function formatFieldValueForList(fieldDef, rawValue, opts = {}) {
   return String(rawValue);
 }
 
+
+function RelationEntryField({ field, value, onChange, relatedCache }) {
+  const cfg = getFieldConfig(field);
+
+  // Pull target slug from multiple possible config shapes
+  const relRaw =
+    cfg?.relation?.contentType ??
+    cfg?.relation?.slug ??
+    cfg?.relatedType ??
+    cfg?.contentType ??
+    cfg?.targetType ??
+    cfg?.target ??
+    cfg?.sourceType ?? // <- important if your builder used "sourceType"
+    null;
+
+  const relSlug =
+    relRaw && typeof relRaw === "object"
+      ? relRaw.slug || relRaw.contentType || relRaw.relatedType || relRaw.id
+      : relRaw;
+
+  const allowMultiple = cfg?.relation?.kind === "many" || !!cfg?.multiple;
+
+  // try cache first
+  const cached =
+    (relSlug && relatedCache?.[String(relSlug)]) ||
+    (cfg?.relation?.id && relatedCache?.[String(cfg.relation.id)]) ||
+    [];
+
+  const [items, setItems] = React.useState(Array.isArray(cached) ? cached : []);
+  const [loading, setLoading] = React.useState(false);
+  const [err, setErr] = React.useState("");
+
+  const REL_DEBUG =
+    typeof window !== "undefined" &&
+    (window.__suDebugRelations === true ||
+      sessionStorage.getItem("__suDebugRelations") === "1");
+
+  // If cache is empty, fetch directly (this fixes slug/id mismatches)
+  React.useEffect(() => {
+    let alive = true;
+
+    async function load() {
+      if (!relSlug) return;
+      // If cache already has data, use it
+      if (Array.isArray(cached) && cached.length) {
+        setItems(cached);
+        return;
+      }
+
+      setLoading(true);
+      setErr("");
+      try {
+        const res = await api.get(`/api/content/${encodeURIComponent(relSlug)}?limit=200`);
+        const data = res?.data ?? res;
+
+        const list =
+          data?.entries ||
+          data?.items ||
+          (Array.isArray(data) ? data : null) ||
+          [];
+
+        if (!alive) return;
+        setItems(Array.isArray(list) ? list : []);
+      } catch (e) {
+        if (!alive) return;
+        setErr(e?.message || "Failed to load related entries");
+        setItems([]);
+      } finally {
+        if (alive) setLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      alive = false;
+    };
+    // IMPORTANT: cached is derived; don’t include it in deps or you can loop
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [relSlug]);
+
+  if (REL_DEBUG) {
+    console.log("[RelationEntryField]", field?.field_key || field?.key, {
+      relRaw,
+      relSlug,
+      cacheKeys: Object.keys(relatedCache || {}),
+      cachedCount: Array.isArray(cached) ? cached.length : 0,
+      itemsCount: Array.isArray(items) ? items.length : 0,
+      loading,
+      err,
+    });
+  }
+
+  function labelFor(ent) {
+    return ent?.data?.title || ent?.title || ent?.data?.name || ent?.name || ent?.id;
+  }
+
+  if (!relSlug) {
+    return (
+      <div style={{ fontSize: 12, opacity: 0.7 }}>
+        Relationship misconfigured (missing target content type).
+      </div>
+    );
+  }
+
+  if (!allowMultiple) {
+    return (
+      <div style={{ display: "grid", gap: 6 }}>
+        <select value={value ?? ""} onChange={(e) => onChange(e.target.value)}>
+          <option value="">— Select related —</option>
+          {items.map((ent) => (
+            <option key={ent.id} value={String(ent.id)}>
+              {labelFor(ent)}
+            </option>
+          ))}
+        </select>
+        <div style={{ fontSize: 11, opacity: 0.7 }}>
+          Source: {relSlug} {loading ? "· loading…" : ""} {err ? `· ${err}` : ""}
+        </div>
+      </div>
+    );
+  }
+
+  const current = Array.isArray(value) ? value.map(String) : value ? [String(value)] : [];
+  const size = Math.min(8, Math.max(3, items.length || 3));
+
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      <select
+        multiple
+        size={size}
+        value={current}
+        onChange={(e) => {
+          const selected = Array.from(e.target.selectedOptions).map((o) => o.value);
+          onChange(selected);
+        }}
+        style={{ minWidth: 260 }}
+      >
+        {items.map((ent) => (
+          <option key={ent.id} value={String(ent.id)}>
+            {labelFor(ent)}
+          </option>
+        ))}
+      </select>
+      <div style={{ fontSize: 11, opacity: 0.7 }}>
+        Source: {relSlug} {loading ? "· loading…" : ""} {err ? `· ${err}` : ""}
+      </div>
+    </div>
+  );
+}
+
+
 /**
  * FieldInput
  */
