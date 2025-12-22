@@ -1640,8 +1640,7 @@ useEffect(() => {
     console.log("[FieldInput] mounted field:", k, "type:", field?.type);
   }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-}, []);
-
+},
 
 
 
