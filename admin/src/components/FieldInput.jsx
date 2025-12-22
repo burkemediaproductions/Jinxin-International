@@ -2032,173 +2032,20 @@ export default function FieldInput({
     );
   }
 
- // ---- Relation ----
+
+
+// -- Relation ----   
 if (fieldType === "relation" || fieldType === "relationship") {
-  // Debug flag that survives refresh
-  const debugRelations =
-    typeof window !== "undefined" &&
-    (
-      window.__suDebugRelations === true ||
-      window?.sessionStorage?.getItem("__suDebugRelations") === "1" ||
-      window?.localStorage?.getItem("__suDebugRelations") === "1"
-    );
-
-  // Supports:
-  // - cfg.relation = { kind:'one'|'many', contentType:'intended-parents' }
-  // - cfg.relation = { contentType: { slug:'intended-parents', id:'...' } }
-  // - legacy cfg.relatedType
-  const relRaw = cfg?.relation?.contentType || cfg?.relatedType || null;
-
-  // Pull best-guess slug out of relRaw
-  const relSlug =
-    relRaw && typeof relRaw === "object"
-      ? (relRaw.slug || relRaw.contentType || relRaw.relatedType || null)
-      : (relRaw ? String(relRaw) : null);
-
-  const allowMultiple = cfg?.relation?.kind === "many" || !!cfg?.multiple;
-
-  // Start with cache if present
-  const cachedList =
-    (relSlug && relatedCache?.[String(relSlug)]) ||
-    (relRaw?.slug && relatedCache?.[String(relRaw.slug)]) ||
-    (relRaw?.id && relatedCache?.[String(relRaw.id)]) ||
-    [];
-
-  // ✅ NEW: local options state so we can fallback-fetch if cache is empty
-  const [relOptions, setRelOptions] = React.useState(() =>
-    Array.isArray(cachedList) ? cachedList : []
-  );
-  const [relBusy, setRelBusy] = React.useState(false);
-  const [relErr, setRelErr] = React.useState("");
-
-  // Keep local options in sync when cache updates
-  React.useEffect(() => {
-    if (Array.isArray(cachedList) && cachedList.length) {
-      setRelOptions(cachedList);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [relSlug, cachedList?.length]);
-
-  // ✅ Fallback fetch if cache is empty (or mismatched key)
-  React.useEffect(() => {
-    let alive = true;
-
-    async function fetchIfNeeded() {
-      setRelErr("");
-
-      if (!relSlug) {
-        setRelOptions([]);
-        return;
-      }
-
-      // If cache already has items, don’t refetch
-      if (Array.isArray(cachedList) && cachedList.length) return;
-
-      setRelBusy(true);
-      try {
-        const res = await api.get(`/api/content/${encodeURIComponent(relSlug)}?limit=200`);
-        const data = res?.data ?? res;
-
-        const list =
-          data?.entries ||
-          data?.items ||
-          (Array.isArray(data) ? data : null) ||
-          [];
-
-        if (!alive) return;
-        setRelOptions(Array.isArray(list) ? list : []);
-      } catch (e) {
-        if (!alive) return;
-        setRelErr(e?.message || "Failed to load related options");
-        setRelOptions([]);
-      } finally {
-        if (alive) setRelBusy(false);
-      }
-    }
-
-    fetchIfNeeded();
-    return () => {
-      alive = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [relSlug]);
-
-  if (debugRelations) {
-    // eslint-disable-next-line no-console
-    console.log("[relation] field", field?.field_key || field?.key, {
-      relRaw,
-      relSlug,
-      cacheKeys: Object.keys(relatedCache || {}),
-      cachedCount: Array.isArray(cachedList) ? cachedList.length : 0,
-      optionsCount: Array.isArray(relOptions) ? relOptions.length : 0,
-      busy: relBusy,
-      err: relErr,
-    });
-  }
-
-  function labelFor(ent) {
-    return ent?.data?.title || ent?.title || ent?.data?.name || ent?.name || ent?.id;
-  }
-
-  // Single
-  if (!allowMultiple) {
-    return (
-      <div style={{ display: "grid", gap: 6 }}>
-        <select value={value ?? ""} onChange={(e) => onChange(e.target.value)}>
-          <option value="">
-            {relBusy ? "Loading…" : relOptions.length ? "Select related…" : "No options"}
-          </option>
-
-          {relOptions.map((ent) => (
-            <option key={ent.id} value={String(ent.id)}>
-              {labelFor(ent)}
-            </option>
-          ))}
-        </select>
-
-        {(debugRelations || relErr) && (
-          <div style={{ fontSize: 11, opacity: 0.75 }}>
-            {relErr ? `Error: ${relErr}` : null}
-            {!relErr && relSlug ? `Source: ${relSlug}` : null}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // Multi
-  const current = Array.isArray(value) ? value.map(String) : value ? [String(value)] : [];
-  const size = Math.min(8, Math.max(3, relOptions.length || 3));
-
   return (
-    <div style={{ display: "grid", gap: 6 }}>
-      <select
-        multiple
-        size={size}
-        value={current}
-        onChange={(e) => {
-          const selected = Array.from(e.target.selectedOptions).map((o) => o.value);
-          onChange(selected);
-        }}
-        style={{ minWidth: 260 }}
-      >
-        {relOptions.map((ent) => (
-          <option key={ent.id} value={String(ent.id)}>
-            {labelFor(ent)}
-          </option>
-        ))}
-      </select>
-
-      {(debugRelations || relErr) && (
-        <div style={{ fontSize: 11, opacity: 0.75 }}>
-          {relErr ? `Error: ${relErr}` : null}
-          {!relErr && relSlug ? `Source: ${relSlug}` : null}
-          {relBusy ? " · Loading…" : null}
-        </div>
-      )}
-    </div>
+    <RelationEntryField
+      field={field}
+      value={value}
+      onChange={onChange}
+      relatedCache={relatedCache}
+    />
   );
 }
+
 
 
   // ---- Advanced ----
