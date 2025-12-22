@@ -349,3 +349,118 @@ button {
     overflow: hidden;
   }
 }
+
+
+/* =========================
+   QuickBuilder layout + UI
+   ========================= */
+
+.qb-layout {
+  display: grid;
+  gap: 16px;
+}
+
+/* Top row: two columns on desktop */
+.qb-top {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+/* Fields: full width card */
+.qb-fields {
+  width: 100%;
+}
+
+/* Stack on mobile/tablet */
+@media (max-width: 1024px) {
+  .qb-top {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Content type list buttons */
+.qb-typeBtn {
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 8px 10px;
+  border-radius: 10px;
+}
+
+.qb-typeBtn:hover {
+  background: var(--su-hover-bg);
+}
+
+.qb-typeBtn.is-active {
+  background: rgba(14, 122, 254, 0.08);
+  border-color: rgba(14, 122, 254, 0.25);
+}
+
+.qb-typeBtnInner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.qb-typeBtnLabelRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.qb-typeBtnLabel {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.qb-typeBtnMeta {
+  font-size: 11px;
+  color: var(--su-muted);
+  border: 1px solid var(--su-border);
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--su-control-bg);
+}
+
+.qb-typeBtnSlug {
+  font-size: 12px;
+  color: var(--su-muted);
+}
+
+/* Fields table spacing */
+.qb-fields table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.qb-fields th,
+.qb-fields td {
+  padding: 10px 8px; /* <-- the big fix */
+  vertical-align: top;
+}
+
+.qb-fields thead th {
+  border-bottom: 1px solid var(--su-border);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.qb-fields tbody td {
+  border-bottom: 1px solid rgba(0,0,0,0.04);
+}
+
+/* Make inputs not feel cramped in table cells */
+.qb-fields .su-input.su-input-sm {
+  padding: 8px 10px;
+}
+
+/* Saving note */
+.qb-savingNote {
+  font-size: 11px;
+  color: var(--su-muted);
+  margin-top: 8px;
+}
