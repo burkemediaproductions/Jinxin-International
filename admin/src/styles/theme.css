@@ -464,3 +464,16 @@ button {
   color: var(--su-muted);
   margin-top: 8px;
 }
+
+
+/* --- Grid spans (needed for QuickBuilder Fields full-width) --- */
+.col-span-2 {
+  grid-column: 1 / -1;
+}
+
+/* --- Make su-grid cols-2 stack on mobile --- */
+@media (max-width: 1024px) {
+  .su-grid.cols-2 {
+    grid-template-columns: 1fr;
+  }
+}
