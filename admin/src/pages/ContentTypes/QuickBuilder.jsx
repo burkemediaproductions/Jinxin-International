@@ -524,11 +524,11 @@ export default function QuickBuilderPage() {
   const taxonomyTypes = types.filter((t) => t.type === "taxonomy");
 
   const renderTypeButton = (t) => {
-  const isActive = !isNewType && t.id === selectedTypeId;
-  const mainLabel = t.label_plural || t.label_singular || t.slug;
-  const isTaxonomy = t.type === "taxonomy";
+    const isActive = !isNewType && t.id === selectedTypeId;
+    const mainLabel = t.label_plural || t.label_singular || t.slug;
+    const isTaxonomy = t.type === "taxonomy";
 
-  return (
+    return (
       <li key={t.id}>
         <button
           type="button"
@@ -551,9 +551,8 @@ export default function QuickBuilderPage() {
           </div>
         </button>
       </li>
-      );
+    );
   };
-
 
   const REPEATER_OPERATORS = [
     { value: "equals", label: "equals" },
@@ -572,7 +571,9 @@ export default function QuickBuilderPage() {
     if (!field) return null;
 
     const cfg =
-      field.config && typeof field.config === "object" ? { ...field.config } : {};
+      field.config && typeof field.config === "object"
+        ? { ...field.config }
+        : {};
 
     const type = field.type || "text";
 
@@ -618,9 +619,9 @@ export default function QuickBuilderPage() {
     }
 
     function removeRepeaterSubfield(i) {
-      const next = (Array.isArray(cfg.subfields) ? [...cfg.subfields] : []).filter(
-        (_, idx) => idx !== i
-      );
+      const next = (
+        Array.isArray(cfg.subfields) ? [...cfg.subfields] : []
+      ).filter((_, idx) => idx !== i);
       updateCfg({ subfields: next });
     }
 
@@ -637,16 +638,12 @@ export default function QuickBuilderPage() {
       updateCfg({ subfields: next });
     }
 
-    // Controlled nesting:
-    // - cfg.maxDepth = how many repeater levels allowed (default 2)
-    // - v1: just store it; FieldInput enforces it
     const maxDepth =
       Number.isFinite(cfg.maxDepth) ? Number(cfg.maxDepth) : 2;
 
     const repeaterLayout = cfg.layout || "cards"; // cards | table
 
     // Conditional rules (per row)
-    // cfg.rules: [{ ifKey, op, value, action, targets[] }]
     function updateRule(i, patch) {
       const rules = Array.isArray(cfg.rules) ? [...cfg.rules] : [];
       rules[i] = { ...(rules[i] || {}), ...patch };
@@ -683,7 +680,6 @@ export default function QuickBuilderPage() {
           Field config — {field.label || field.field_key || "(untitled)"}
         </div>
 
-        {/* Choice-based fields */}
         {["radio", "dropdown", "checkbox", "select", "multiselect"].includes(
           type
         ) && (
@@ -704,7 +700,6 @@ export default function QuickBuilderPage() {
           </div>
         )}
 
-        {/* Tags suggestions */}
         {type === "tags" && (
           <div className="mb-4 space-y-1">
             <div className="font-medium">Tag suggestions</div>
@@ -727,7 +722,6 @@ export default function QuickBuilderPage() {
           </div>
         )}
 
-        {/* Relationship config */}
         {["relationship", "relation"].includes(type) && (
           <div className="mb-4 grid gap-3 md:grid-cols-2">
             <label className="space-y-1">
@@ -771,7 +765,6 @@ export default function QuickBuilderPage() {
           </div>
         )}
 
-        {/* User relationship config */}
         {type === "relation_user" && (
           <div className="mb-4 grid gap-3 md:grid-cols-2">
             <div className="space-y-2">
@@ -827,7 +820,6 @@ export default function QuickBuilderPage() {
           </div>
         )}
 
-        {/* Media upload config */}
         {["image", "file", "video"].includes(type) && (
           <div className="mb-4 grid gap-3 md:grid-cols-[minmax(0,2fr),minmax(0,1fr)]">
             <label className="space-y-1">
@@ -857,7 +849,6 @@ export default function QuickBuilderPage() {
           </div>
         )}
 
-        {/* ✅ REPEATER CONFIG */}
         {type === "repeater" && (
           <div className="mb-4 space-y-3">
             <div className="font-medium">Repeater settings</div>
@@ -872,7 +863,9 @@ export default function QuickBuilderPage() {
                   onChange={(e) =>
                     updateCfg({
                       minRows:
-                        e.target.value === "" ? undefined : Number(e.target.value),
+                        e.target.value === ""
+                          ? undefined
+                          : Number(e.target.value),
                     })
                   }
                 />
@@ -887,7 +880,9 @@ export default function QuickBuilderPage() {
                   onChange={(e) =>
                     updateCfg({
                       maxRows:
-                        e.target.value === "" ? undefined : Number(e.target.value),
+                        e.target.value === ""
+                          ? undefined
+                          : Number(e.target.value),
                     })
                   }
                 />
@@ -928,20 +923,26 @@ export default function QuickBuilderPage() {
                   }
                 />
                 <div className="text-[11px] text-gray-500">
-                  1 = no nested repeaters. 2 = allow one repeater inside another, etc.
+                  1 = no nested repeaters. 2 = allow one repeater inside
+                  another, etc.
                 </div>
               </label>
 
               <label className="space-y-1 md:col-span-2">
-                <span className="font-medium text-xs">Row label template (optional)</span>
+                <span className="font-medium text-xs">
+                  Row label template (optional)
+                </span>
                 <input
                   className="su-input"
                   value={cfg.rowLabelTemplate ?? ""}
-                  onChange={(e) => updateCfg({ rowLabelTemplate: e.target.value })}
+                  onChange={(e) =>
+                    updateCfg({ rowLabelTemplate: e.target.value })
+                  }
                   placeholder='Example: "Item {#}: {name}"'
                 />
                 <div className="text-[11px] text-gray-500">
-                  Supports <code>{"{#}"}</code> and <code>{"{field_key}"}</code>.
+                  Supports <code>{"{#}"}</code> and{" "}
+                  <code>{"{field_key}"}</code>.
                 </div>
               </label>
             </div>
@@ -974,12 +975,14 @@ export default function QuickBuilderPage() {
 
                         const typeOptions = FIELD_TYPES.filter((t) => {
                           if (t.value !== "repeater") return true;
-                          // Allow picking repeater as a subfield, but FieldInput enforces maxDepth.
                           return true;
                         });
 
                         return (
-                          <tr key={i} className="border-b border-gray-100 align-top">
+                          <tr
+                            key={i}
+                            className="border-b border-gray-100 align-top"
+                          >
                             <td className="py-1 pr-2">
                               <input
                                 className="su-input su-input-sm"
@@ -998,7 +1001,9 @@ export default function QuickBuilderPage() {
                                 className="su-input su-input-sm"
                                 value={sf.label || ""}
                                 onChange={(e) =>
-                                  updateRepeaterSubfield(i, { label: e.target.value })
+                                  updateRepeaterSubfield(i, {
+                                    label: e.target.value,
+                                  })
                                 }
                                 placeholder="Subfield label"
                               />
@@ -1009,7 +1014,9 @@ export default function QuickBuilderPage() {
                                 className="su-input su-input-sm min-w-[180px]"
                                 value={sf.type || "text"}
                                 onChange={(e) =>
-                                  updateRepeaterSubfield(i, { type: e.target.value })
+                                  updateRepeaterSubfield(i, {
+                                    type: e.target.value,
+                                  })
                                 }
                               >
                                 {typeOptions.map((t) => (
@@ -1020,7 +1027,8 @@ export default function QuickBuilderPage() {
                               </select>
                               {sf.type === "repeater" && (
                                 <div className="text-[11px] text-gray-500 mt-1">
-                                  Nested repeater allowed up to depth {maxDepth}.
+                                  Nested repeater allowed up to depth {maxDepth}
+                                  .
                                 </div>
                               )}
                             </td>
@@ -1063,7 +1071,6 @@ export default function QuickBuilderPage() {
                                       configText: undefined,
                                     });
                                   } else {
-                                    // keep raw text until valid
                                     updateRepeaterSubfield(i, {
                                       configText: e.target.value,
                                     });
@@ -1072,7 +1079,8 @@ export default function QuickBuilderPage() {
                                 placeholder='{"accept":"image/*"}'
                               />
                               <div className="text-[11px] text-gray-500 mt-1">
-                                Leave blank for none. (Must be valid JSON to save.)
+                                Leave blank for none. (Must be valid JSON to
+                                save.)
                               </div>
                             </td>
 
@@ -1108,8 +1116,9 @@ export default function QuickBuilderPage() {
               </div>
 
               <div className="text-[11px] text-gray-500 mb-2">
-                Each rule reads a value in the row and then shows/hides selected subfields.
-                Rules are evaluated top-to-bottom; later rules can override earlier ones.
+                Each rule reads a value in the row and then shows/hides selected
+                subfields. Rules are evaluated top-to-bottom; later rules can
+                override earlier ones.
               </div>
 
               {(Array.isArray(cfg.rules) ? cfg.rules : []).map((r, i) => (
@@ -1157,7 +1166,9 @@ export default function QuickBuilderPage() {
                     <select
                       className="su-input"
                       value={r.action || "show"}
-                      onChange={(e) => updateRule(i, { action: e.target.value })}
+                      onChange={(e) =>
+                        updateRule(i, { action: e.target.value })
+                      }
                     >
                       <option value="show">Show targets</option>
                       <option value="hide">Hide targets</option>
@@ -1207,7 +1218,6 @@ export default function QuickBuilderPage() {
           </div>
         )}
 
-        {/* Subfields (name/address/media meta) */}
         {supportsSubfields(type) && (
           <SubfieldControls
             type={type}
@@ -1233,7 +1243,8 @@ export default function QuickBuilderPage() {
         ].includes(type) &&
           !supportsSubfields(type) && (
             <div className="text-xs text-gray-500">
-              This field type has no extra config yet. (We can always add more later.)
+              This field type has no extra config yet. (We can always add more
+              later.)
             </div>
           )}
       </div>
@@ -1268,7 +1279,11 @@ export default function QuickBuilderPage() {
         </div>
       )}
 
-      <div className="su-grid cols-3 gap-6">
+      {/* ✅ NEW LAYOUT:
+          Desktop: 2 columns (Types | Details)
+          Underneath: Fields full width
+          Mobile: stacks naturally using your su-grid rules */}
+      <div className="su-grid cols-2 gap-6">
         {/* LEFT: type list */}
         <div className="su-card self-start">
           <div className="mb-3 flex items-center justify-between">
@@ -1292,10 +1307,7 @@ export default function QuickBuilderPage() {
           ) : (
             <>
               {contentTypes.length > 0 && (
-                <ul
-                  className="space-y-1"
-                  style={{ listStyle: "none", padding: 0 }}
-                >
+                <ul style={{ listStyle: "none", padding: 0 }}>
                   {contentTypes.map(renderTypeButton)}
                 </ul>
               )}
@@ -1305,10 +1317,7 @@ export default function QuickBuilderPage() {
                   <div className="mt-4 mb-1 text-[11px] uppercase tracking-wide text-gray-500">
                     Taxonomies
                   </div>
-                  <ul
-                    className="space-y-1"
-                    style={{ listStyle: "none", padding: 0 }}
-                  >
+                  <ul style={{ listStyle: "none", padding: 0 }}>
                     {taxonomyTypes.map(renderTypeButton)}
                   </ul>
                 </>
@@ -1317,9 +1326,8 @@ export default function QuickBuilderPage() {
           )}
         </div>
 
-        {/* RIGHT: details + fields */}
-        <div className="su-card col-span-2 space-y-6">
-          {/* TYPE DETAILS */}
+        {/* RIGHT: details only */}
+        <div className="su-card self-start">
           <form onSubmit={saveType} className="space-y-4">
             <div className="flex items-center justify-between gap-4">
               <h2 className="m-0 text-base font-medium">
@@ -1406,8 +1414,10 @@ export default function QuickBuilderPage() {
               </label>
             </div>
           </form>
+        </div>
 
-          {/* FIELDS */}
+        {/* FULL WIDTH: fields */}
+        <div className="su-card col-span-2 space-y-6">
           <form onSubmit={saveFields} className="space-y-4">
             <div className="flex items-center justify-between gap-4">
               <h2 className="m-0 text-base font-medium">Fields</h2>
