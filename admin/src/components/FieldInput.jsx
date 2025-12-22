@@ -1851,54 +1851,38 @@ export default function FieldInput({
     );
   }
 
-  // ---- Relation ----
-  if (fieldType === "relation" || fieldType === "relationship") {
-    const rel =
-      cfg?.relation?.contentType ||
-      cfg?.relation?.slug ||
-      cfg?.relatedType ||
-      cfg?.contentType ||
-      cfg?.targetType ||
-      cfg?.target ||
-      field?.relatedType ||
-      field?.contentType;
-    const allowMultiple =
-      cfg?.relation?.kind === "many" || !!cfg?.multiple;
+ // ---- Relation ----
+if (fieldType === "relation" || fieldType === "relationship") {
+  // Supports both:
+  // - cfg.relation = { kind:'one'|'many', contentType:'users' } OR contentType:{slug:'users', id:'...'}
+  // - legacy cfg.relatedType / cfg.multiple
+  const relRaw = cfg?.relation?.contentType || cfg?.relatedType;
 
-    const list = (rel && relatedCache?.[rel]) || [];
+  // Normalize rel key into a string we can use for cache lookups
+  const relKey =
+    relRaw && typeof relRaw === "object"
+      ? relRaw.slug || relRaw.contentType || relRaw.relatedType || relRaw.id
+      : relRaw;
 
-    function labelFor(ent) {
-      return ent?.data?.title || ent?.title || ent?.id;
-    }
+  const allowMultiple = cfg?.relation?.kind === "many" || !!cfg?.multiple;
 
-    if (!allowMultiple) {
-      return (
-        <select value={value ?? ""} onChange={(e) => onChange(e.target.value)}>
-          <option value="" disabled>
-            Select related…
-          </option>
-          {list.map((ent) => (
-            <option key={ent.id} value={String(ent.id)}>
-              {labelFor(ent)}
-            </option>
-          ))}
-        </select>
-      );
-    }
+  // Try a few cache keys just in case
+  const list =
+    (relKey && relatedCache?.[String(relKey)]) ||
+    (relRaw?.slug && relatedCache?.[String(relRaw.slug)]) ||
+    (relRaw?.id && relatedCache?.[String(relRaw.id)]) ||
+    [];
 
-    const current = Array.isArray(value) ? value.map(String) : value ? [String(value)] : [];
-    const size = Math.min(8, Math.max(3, list.length));
+  function labelFor(ent) {
+    return ent?.data?.title || ent?.title || ent?.id;
+  }
+
+  if (!allowMultiple) {
     return (
-      <select
-        multiple
-        size={size}
-        value={current}
-        onChange={(e) => {
-          const selected = Array.from(e.target.selectedOptions).map((o) => o.value);
-          onChange(selected);
-        }}
-        style={{ minWidth: 260 }}
-      >
+      <select value={value ?? ""} onChange={(e) => onChange(e.target.value)}>
+        <option value="" disabled>
+          Select related…
+        </option>
         {list.map((ent) => (
           <option key={ent.id} value={String(ent.id)}>
             {labelFor(ent)}
@@ -1907,6 +1891,30 @@ export default function FieldInput({
       </select>
     );
   }
+
+  const current = Array.isArray(value) ? value.map(String) : value ? [String(value)] : [];
+  const size = Math.min(8, Math.max(3, list.length));
+
+  return (
+    <select
+      multiple
+      size={size}
+      value={current}
+      onChange={(e) => {
+        const selected = Array.from(e.target.selectedOptions).map((o) => o.value);
+        onChange(selected);
+      }}
+      style={{ minWidth: 260 }}
+    >
+      {list.map((ent) => (
+        <option key={ent.id} value={String(ent.id)}>
+          {labelFor(ent)}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 
   // ---- Advanced ----
   if (fieldType === "rich_text") {
@@ -2094,3 +2102,6 @@ export default function FieldInput({
 
   return <input type="text" value={value ?? ""} onChange={(e) => onChange(e.target.value)} />;
 }
+
+console.log("[relation] field", field?.field_key || field?.key, "relRaw:", relRaw, "relKey:", relKey);
+console.log("[relation] cache keys:", Object.keys(relatedCache || {}));
