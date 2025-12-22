@@ -218,6 +218,43 @@ function getPreviewTypeFromFile(meta) {
 }
 
 /** ------------------------------------------------------------------ */
+/** ✅ NEW: RELATIONSHIP TARGET SLUG + NORMALIZATION                     */
+/** ------------------------------------------------------------------ */
+function getRelationshipTargetSlugFromField(field) {
+  const cfg = getFieldConfig(field);
+
+  // Try the most common shapes we’ve seen across installs
+  const v =
+    cfg?.relation?.slug ||
+    cfg?.relation?.content_type_slug ||
+    cfg?.relation?.contentType ||   // sometimes slug, sometimes id; we’ll still try it
+    cfg?.relation?.content_type ||
+    cfg?.relation?.target ||
+    cfg?.relatedType ||
+    cfg?.contentType ||
+    cfg?.targetType ||
+    cfg?.target ||
+    field?.relatedType ||
+    field?.contentType ||
+    null;
+
+  // Sometimes stored as an object like { slug, id, contentType }
+  if (v && typeof v === "object") {
+    return v.slug || v.contentType || v.relatedType || v.content_type_slug || v.id || null;
+  }
+
+  return v ? String(v) : null;
+}
+
+function normalizeRelKey(k) {
+  if (!k) return "";
+  return String(k)
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, "-"); // intended_parents -> intended-parents
+}
+
+/** ------------------------------------------------------------------ */
 /** USER RELATIONSHIP FIELD (relation_user)                             */
 /** ------------------------------------------------------------------ */
 function UserRelationField({ field, value, onChange, resolved }) {
@@ -1079,7 +1116,6 @@ function FileField({ field, value, onChange, entryContext, accept }) {
   );
 }
 
-
 function coerceArray(v) {
   return Array.isArray(v) ? v : [];
 }
@@ -1617,7 +1653,6 @@ export function formatFieldValueForList(fieldDef, rawValue, opts = {}) {
   return String(rawValue);
 }
 
-
 /**
  * FieldInput
  */
@@ -1629,10 +1664,8 @@ export default function FieldInput({
   choicesCache,
   entryContext,
   resolved,
- _repeaterDepth,
-}) 
-
-{
+  _repeaterDepth,
+}) {
   const fieldType = (field?.type || "text").toString().trim().toLowerCase();
   const cfg = getFieldConfig(field);
 
@@ -1649,7 +1682,7 @@ export default function FieldInput({
 
   // Repeater
   if (fieldType === "repeater") {
-    const depth = typeof _repeaterDepth === "number" ? _repeaterDepth : 1;  
+    const depth = typeof _repeaterDepth === "number" ? _repeaterDepth : 1;
     return (
       <RepeaterField
         field={field}
@@ -1664,8 +1697,6 @@ export default function FieldInput({
     );
   }
 
-
-  
   // ---- Dynamic choice helpers ----
   const isChoice = ["radio", "dropdown", "checkbox", "select", "multiselect"].includes(fieldType);
   const isDynamic =
@@ -1852,82 +1883,84 @@ export default function FieldInput({
     );
   }
 
- // ---- Relation ----
-if (fieldType === "relation" || fieldType === "relationship") {
-  // Supports both:
-  // - cfg.relation = { kind:'one'|'many', contentType:'users' } OR contentType:{slug:'users', id:'...'}
-  // - legacy cfg.relatedType / cfg.multiple
-  const relRaw = cfg?.relation?.contentType || cfg?.relatedType;
+  // ---- ✅ Relation (FIXED) ----
+  if (fieldType === "relation" || fieldType === "relationship") {
+    // Determine relationship target (slug-ish) robustly
+    const rawTarget = getRelationshipTargetSlugFromField(field);
+    const normTarget = normalizeRelKey(rawTarget);
 
-  // Normalize rel key into a string we can use for cache lookups
-  const relKey =
-    relRaw && typeof relRaw === "object"
-      ? relRaw.slug || relRaw.contentType || relRaw.relatedType || relRaw.id
-      : relRaw;
+    // many vs one
+    const allowMultiple =
+      cfg?.relation?.kind === "many" ||
+      cfg?.relation?.multiple === true ||
+      !!cfg?.multiple;
 
-  const allowMultiple = cfg?.relation?.kind === "many" || !!cfg?.multiple;
+    // Look up the related list. Try multiple keys (raw + normalized).
+    const cache = relatedCache || {};
+    const list =
+      (rawTarget && cache[String(rawTarget)]) ||
+      (normTarget && cache[String(normTarget)]) ||
+      // also try if rawTarget had underscores and we normalized
+      (rawTarget && cache[normalizeRelKey(String(rawTarget))]) ||
+      [];
 
-  // Try a few cache keys just in case
-  const list =
-    (relKey && relatedCache?.[String(relKey)]) ||
-    (relRaw?.slug && relatedCache?.[String(relRaw.slug)]) ||
-    (relRaw?.id && relatedCache?.[String(relRaw.id)]) ||
-    [];
+    // Debug: set window.__suDebugRelations = true then refresh
+    if (typeof window !== "undefined" && window.__suDebugRelations) {
+      // eslint-disable-next-line no-console
+      console.log("[FieldInput relation]", field?.field_key || field?.key, {
+        rawTarget,
+        normTarget,
+        relationCfg: cfg?.relation,
+        relatedTypeCfg: cfg?.relatedType,
+        cacheKeys: Object.keys(cache || {}),
+        listCount: Array.isArray(list) ? list.length : 0,
+        sampleKeys: Object.keys((cache && cache[normTarget]) || {}).slice?.(0, 5),
+      });
+    }
 
-  // Debug (optional): in browser console run `window.__suDebugRelations = true` then refresh
-  if (typeof window !== "undefined" && window.__suDebugRelations) {
-    // eslint-disable-next-line no-console
-    console.log("[relation] field", field?.field_key || field?.key, {
-      relRaw,
-      relKey,
-      cacheKeys: Object.keys(relatedCache || {}),
-      listCount: Array.isArray(list) ? list.length : 0,
-    });
-  }
+    function labelFor(ent) {
+      return ent?.data?.title || ent?.title || ent?.slug || ent?.id;
+    }
 
-
-  function labelFor(ent) {
-    return ent?.data?.title || ent?.title || ent?.id;
-  }
-
-  if (!allowMultiple) {
-    return (
-      <select value={value ?? ""} onChange={(e) => onChange(e.target.value)}>
-        <option value="" disabled>
-          Select related…
-        </option>
-        {list.map((ent) => (
-          <option key={ent.id} value={String(ent.id)}>
-            {labelFor(ent)}
+    if (!allowMultiple) {
+      return (
+        <select value={value ?? ""} onChange={(e) => onChange(e.target.value)}>
+          <option value="" disabled>
+            Select related…
           </option>
-        ))}
+          {Array.isArray(list) &&
+            list.map((ent) => (
+              <option key={ent.id} value={String(ent.id)}>
+                {labelFor(ent)}
+              </option>
+            ))}
+        </select>
+      );
+    }
+
+    const current = Array.isArray(value) ? value.map(String) : value ? [String(value)] : [];
+    const size = Math.min(8, Math.max(3, Array.isArray(list) ? list.length : 0));
+
+    return (
+      <select
+        multiple
+        size={size}
+        value={current}
+        onChange={(e) => {
+          const selected = Array.from(e.target.selectedOptions).map((o) => o.value);
+          onChange(selected);
+        }}
+        style={{ minWidth: 260 }}
+      >
+        {Array.isArray(list) &&
+          list.map((ent) => (
+            <option key={ent.id} value={String(ent.id)}>
+              {labelFor(ent)}
+            </option>
+          ))}
       </select>
     );
   }
-
-  const current = Array.isArray(value) ? value.map(String) : value ? [String(value)] : [];
-  const size = Math.min(8, Math.max(3, list.length));
-
-  return (
-    <select
-      multiple
-      size={size}
-      value={current}
-      onChange={(e) => {
-        const selected = Array.from(e.target.selectedOptions).map((o) => o.value);
-        onChange(selected);
-      }}
-      style={{ minWidth: 260 }}
-    >
-      {list.map((ent) => (
-        <option key={ent.id} value={String(ent.id)}>
-          {labelFor(ent)}
-        </option>
-      ))}
-    </select>
-  );
-}
-
 
   // ---- Advanced ----
   if (fieldType === "rich_text") {
