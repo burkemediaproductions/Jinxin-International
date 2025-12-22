@@ -524,11 +524,11 @@ export default function QuickBuilderPage() {
   const taxonomyTypes = types.filter((t) => t.type === "taxonomy");
 
   const renderTypeButton = (t) => {
-    const isActive = !isNewType && t.id === selectedTypeId;
-    const mainLabel = t.label_plural || t.label_singular || t.slug;
-    const isTaxonomy = t.type === "taxonomy";
+  const isActive = !isNewType && t.id === selectedTypeId;
+  const mainLabel = t.label_plural || t.label_singular || t.slug;
+  const isTaxonomy = t.type === "taxonomy";
 
-    return (
+  return (
       <li key={t.id}>
         <button
           type="button"
@@ -539,24 +539,21 @@ export default function QuickBuilderPage() {
             setError("");
             setActiveFieldIndex(null);
           }}
-          className={
-            "w-full rounded px-2 py-1 text-left text-sm " +
-            (isActive ? "bg-blue-50 text-blue-700" : "hover:bg-gray-50")
-          }
+          className={"qb-typeBtn " + (isActive ? "is-active" : "")}
         >
-          <div className="flex flex-col gap-[2px]">
-            <span>
-              {mainLabel}
-              {isTaxonomy ? " · Taxonomy" : ""}
-            </span>
-            {t.slug && (
-              <span className="text-[11px] text-gray-500">{t.slug}</span>
-            )}
+          <div className="qb-typeBtnInner">
+            <div className="qb-typeBtnLabelRow">
+              <span className="qb-typeBtnLabel">{mainLabel}</span>
+              {isTaxonomy && <span className="qb-typeBtnMeta">Taxonomy</span>}
+            </div>
+
+            {t.slug && <div className="qb-typeBtnSlug">{t.slug}</div>}
           </div>
         </button>
       </li>
-    );
+      );
   };
+
 
   const REPEATER_OPERATORS = [
     { value: "equals", label: "equals" },
