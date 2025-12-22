@@ -1706,11 +1706,18 @@ function RelationEntryField({ field, value, onChange, relatedCache }) {
         const res = await api.get(`/api/content/${encodeURIComponent(relSlug)}?limit=200`);
         const data = res?.data ?? res;
 
-        const list =
-          data?.entries ||
-          data?.items ||
-          (Array.isArray(data) ? data : null) ||
-          [];
+        let list = [];
+
+          if (Array.isArray(data)) {
+          list = data;
+          } else if (Array.isArray(data?.entries)) {
+          list = data.entries;
+          } else if (Array.isArray(data?.items)) {
+          list = data.items;
+          } else {
+          list = [];
+          }
+
 
         if (!alive) return;
         setItems(Array.isArray(list) ? list : []);
