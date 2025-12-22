@@ -12,7 +12,6 @@ import { api } from "../lib/api";
 
 /** ---------- Helpers ---------- */
 
-// ✅ NEW: lightweight modal (no external deps)
 function Modal({ open, title, onClose, children }) {
   useEffect(() => {
     if (!open) return;
@@ -1632,18 +1631,6 @@ export default function FieldInput({
   resolved,
  _repeaterDepth,
 }) 
-
-
-useEffect(() => {
-  if (window.__suDebugRelations) {
-    const k = field?.field_key || field?.key;
-    console.log("[FieldInput] mounted field:", k, "type:", field?.type);
-  }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-},
-
-
-
 
 {
   const fieldType = (field?.type || "text").toString().trim().toLowerCase();
