@@ -1,7 +1,12 @@
 // admin/src/components/FieldInput.jsx
 import React, { useState, useMemo, useEffect } from "react";
 import RichTextEditor from "./RichTextEditor";
-import { combineDateAndTimeToUTC } from "../utils/datetime";
+import {
+  combineDateAndTimeToUTC,
+  fmtDateISO,
+  fmtDateTimeUTC,
+  fmtTimeShortLower,
+} from "../utils/datetime";
 import { contrastRatio, normalizeHex } from "../utils/color";
 import {
   uploadToSupabase,
@@ -2080,29 +2085,112 @@ if (fieldType === "relation" || fieldType === "relationship") {
     );
   }
 
-  if (fieldType === "datetime") {
-    const tz = cfg?.defaultTZ || "America/Los_Angeles";
-    const v = value || { utc: "", sourceTZ: tz };
-    const [date, setDate] = useState("");
-    const [time, setTime] = useState("");
+  if (fieldType === "date") {
+    const iso = typeof value === "string" ? value : "";
+    const style = cfg?.dateStyle || "long"; // long | medium | short
+    const locale = cfg?.locale || "en-US";
 
     return (
-      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-        <input type="time" value={time} onChange={(e) => setTime(e.target.value)} step="60" />
-        <button
-          type="button"
-          onClick={() => {
-            if (!date || !time) return;
-            onChange({ utc: combineDateAndTimeToUTC(date, time, tz), sourceTZ: tz });
-          }}
-        >
-          Set
-        </button>
-        {v.utc ? <small style={{ marginLeft: 8 }}>Saved UTC: {v.utc}</small> : null}
+      <div style={{ display: "grid", gap: 6 }}>
+        <input
+          type="date"
+          value={iso || ""}
+          onChange={(e) => onChange(e.target.value || "")}
+        />
+        {iso ? (
+          <small style={{ opacity: 0.75 }}>
+            {fmtDateISO(iso, locale, style)}
+          </small>
+        ) : null}
       </div>
     );
   }
+
+    if (fieldType === "datetime") {
+    const tz = cfg?.defaultTZ || "America/Los_Angeles";
+    const locale = cfg?.locale || "en-US";
+
+    // Stored shape: { utc: "...", sourceTZ: "..." }
+    const v =
+      value && typeof value === "object"
+        ? value
+        : value
+        ? { utc: String(value), sourceTZ: tz }
+        : { utc: "", sourceTZ: tz };
+
+    const [date, setDate] = useState("");
+    const [time, setTime] = useState("");
+
+    // Prefill local date/time from saved UTC
+    useEffect(() => {
+      if (!v?.utc) {
+        setDate("");
+        setTime("");
+        return;
+      }
+      try {
+        const dt = DateTime.fromISO(v.utc, { zone: "utc" }).setZone(tz);
+        setDate(dt.toFormat("yyyy-LL-dd"));
+        setTime(dt.toFormat("HH:mm"));
+      } catch {
+        // ignore
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [v?.utc, tz]);
+
+    const canSave = !!date && !!time;
+
+    function save() {
+      if (!canSave) return;
+      onChange({
+        utc: combineDateAndTimeToUTC(date, time, tz),
+        sourceTZ: tz,
+      });
+    }
+
+    return (
+      <div style={{ display: "grid", gap: 6 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => {
+              const next = e.target.value;
+              setDate(next);
+              // auto-save if time already chosen
+              if (next && time) {
+                onChange({ utc: combineDateAndTimeToUTC(next, time, tz), sourceTZ: tz });
+              }
+            }}
+          />
+          <input
+            type="time"
+            value={time}
+            onChange={(e) => {
+              const next = e.target.value;
+              setTime(next);
+              // auto-save if date already chosen
+              if (date && next) {
+                onChange({ utc: combineDateAndTimeToUTC(date, next, tz), sourceTZ: tz });
+              }
+            }}
+            step="60"
+          />
+          <button type="button" onClick={save} disabled={!canSave}>
+            Set
+          </button>
+          <small style={{ opacity: 0.7 }}>TZ: {tz}</small>
+        </div>
+
+        {v?.utc ? (
+          <small style={{ opacity: 0.8 }}>
+            {fmtDateTimeUTC(v.utc, tz, locale)}
+          </small>
+        ) : null}
+      </div>
+    );
+  }
+
 
   if (fieldType === "daterange") {
     const tz = cfg?.defaultTZ || Intl.DateTimeFormat().resolvedOptions().timeZone;
