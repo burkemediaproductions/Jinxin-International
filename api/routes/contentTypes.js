@@ -383,6 +383,168 @@ router.get("/:id", async (req, res) => {
   }
 });
 
+
+/**
+ * POST /api/content-types/:id/fields/import
+ * Bulk APPEND fields to a content type (does NOT replace existing fields)
+ *
+ * Body:
+ * {
+ *   "fields": [
+ *     { "field_key": "ms_date", "label": "MS Date", "type": "date", "required": false, "help_text": "", "config": {} },
+ *     ...
+ *   ]
+ * }
+ */
+router.post("/:id/fields/import", requireAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { id } = req.params;
+    const resolvedId = await resolveContentTypeId(id);
+    if (!resolvedId) return res.status(404).json({ error: "Content type not found" });
+
+    const incomingFields = Array.isArray(req.body?.fields) ? req.body.fields : null;
+    if (!incomingFields) {
+      return res.status(400).json({ error: "Body must be { fields: [...] }" });
+    }
+
+    // Safety guard
+    const MAX_FIELDS = 500;
+    if (incomingFields.length > MAX_FIELDS) {
+      return res.status(400).json({
+        error: `Too many fields (${incomingFields.length}). Max allowed is ${MAX_FIELDS}.`,
+      });
+    }
+
+    // Normalize + validate
+    const normalized = incomingFields
+      .map((f) => {
+        const field_key = String(f?.field_key || f?.key || "").trim();
+        const label = String(f?.label || "").trim();
+        const rawType = String(f?.type || "text").trim().toLowerCase();
+
+        const type =
+          rawType === "select"
+            ? "dropdown"
+            : rawType === "relationship"
+            ? "relation"
+            : rawType;
+
+        if (!field_key || !label || !type) return null;
+
+        const cfg = f?.config || {};
+        const choices =
+          cfg?.choices ??
+          cfg?.options ??
+          f?.choices ??
+          f?.options ??
+          null;
+
+        const config = {
+          ...cfg,
+          choices,
+          relation: cfg?.relation ?? f?.relation ?? null,
+          optionsSource:
+            cfg?.optionsSource ?? f?.optionsSource ?? (choices ? "inline" : null),
+          options: cfg?.options ?? f?.options ?? null,
+        };
+
+        return {
+          field_key,
+          label,
+          type,
+          required: !!f?.required,
+          help_text: String(f?.help_text || "").trim(),
+          config,
+        };
+      })
+      .filter(Boolean);
+
+    if (!normalized.length) {
+      return res.status(400).json({ error: "No valid fields provided" });
+    }
+
+    await client.query("BEGIN");
+
+    // Ensure content type exists
+    const ctRes = await client.query(
+      `SELECT id FROM content_types WHERE id = $1 LIMIT 1`,
+      [resolvedId]
+    );
+    if (!ctRes.rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Content type not found" });
+    }
+
+    // Load existing field keys + max order_index
+    const existingRes = await client.query(
+      `SELECT field_key, order_index
+       FROM content_fields
+       WHERE content_type_id = $1`,
+      [resolvedId]
+    );
+
+    const existingKeys = new Set(existingRes.rows.map((r) => r.field_key));
+    const maxIndex = existingRes.rows.reduce((max, r) => {
+      const n = Number.isFinite(r?.order_index) ? r.order_index : -1;
+      return Math.max(max, n);
+    }, -1);
+
+    const insertSql = `
+      INSERT INTO content_fields
+        (content_type_id, field_key, label, type, required, help_text, order_index, config)
+      VALUES
+        ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+      RETURNING *;
+    `;
+
+    const inserted = [];
+    const skipped = [];
+
+    let nextIndex = maxIndex + 1;
+
+    for (const f of normalized) {
+      if (existingKeys.has(f.field_key)) {
+        skipped.push({ field_key: f.field_key, reason: "already_exists" });
+        continue;
+      }
+
+      const { rows } = await client.query(insertSql, [
+        resolvedId,
+        f.field_key,
+        f.label,
+        f.type || "text",
+        !!f.required,
+        f.help_text || "",
+        nextIndex++,
+        JSON.stringify(f.config || {}),
+      ]);
+
+      inserted.push(rows[0]);
+      existingKeys.add(f.field_key);
+    }
+
+    await client.query("COMMIT");
+
+    return res.json({
+      ok: true,
+      content_type_id: resolvedId,
+      inserted: inserted.length,
+      skipped: skipped.length,
+      inserted_fields: inserted,
+      skipped_fields: skipped,
+    });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("Error importing (append) content fields", err);
+    return res.status(500).json({ error: "Failed to import fields", message: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+
+
 /**
  * PUT /api/content-types/:id
  * Update base metadata
