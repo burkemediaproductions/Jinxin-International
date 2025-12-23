@@ -577,9 +577,76 @@ export default function QuickBuilderPage() {
 
     const type = field.type || "text";
 
+    // --- Relationship inline-edit support (Option B) ---
+    const isRelationType = ["relationship", "relation"].includes(type);
+
+    // For our picker population, we treat `cfg.relatedType` as the slug.
+    const relatedSlug = String(cfg.relatedType || "").trim();
+
+    const relatedTypeObj = useMemo(() => {
+      if (!relatedSlug) return null;
+      return (types || []).find((t) => String(t.slug || "") === relatedSlug) || null;
+    }, [types, relatedSlug]);
+
+    const [relatedFields, setRelatedFields] = useState([]);
+    const [loadingRelatedFields, setLoadingRelatedFields] = useState(false);
+
+    useEffect(() => {
+      let cancelled = false;
+
+      async function loadRelatedFields() {
+        try {
+          setLoadingRelatedFields(true);
+
+          if (!relatedTypeObj?.id) {
+            setRelatedFields([]);
+            return;
+          }
+
+          const data = await api.get(`/api/content-types/${relatedTypeObj.id}`);
+          if (cancelled) return;
+
+          const list = (data?.fields || [])
+            .map((f) => ({
+              key: String(f.field_key || "").trim(),
+              label: String(f.label || f.field_key || "").trim(),
+              type: String(f.type || "").trim(),
+            }))
+            .filter((x) => x.key);
+
+          setRelatedFields(list);
+        } catch (e) {
+          console.error(e);
+          if (!cancelled) setRelatedFields([]);
+        } finally {
+          if (!cancelled) setLoadingRelatedFields(false);
+        }
+      }
+
+      if (isRelationType && relatedSlug) loadRelatedFields();
+      else setRelatedFields([]);
+
+      return () => {
+        cancelled = true;
+      };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isRelationType, relatedTypeObj?.id, relatedSlug]);
+
     function updateCfg(patch) {
       onChange({ ...cfg, ...patch });
     }
+
+    function updateInlineEdit(patch) {
+      const current =
+        cfg.inlineEdit && typeof cfg.inlineEdit === "object"
+          ? { ...cfg.inlineEdit }
+          : {};
+      updateCfg({ inlineEdit: { ...current, ...patch } });
+    }
+
+    const inlineEdit = (cfg.inlineEdit && typeof cfg.inlineEdit === "object")
+      ? cfg.inlineEdit
+      : {};
 
     // Choice helpers
     function choicesToText(c) {
@@ -674,6 +741,19 @@ export default function QuickBuilderPage() {
         .filter(Boolean);
     }, [cfg.subfields]);
 
+    const relatedFieldOptions = useMemo(() => {
+      // We only want real field keys (not empty). We keep label handy for nicer display.
+      return (relatedFields || []).map((f) => ({
+        key: f.key,
+        label: f.label || f.key,
+        type: f.type || "",
+      }));
+    }, [relatedFields]);
+
+    const inlineAllowedFields = Array.isArray(inlineEdit.fields)
+      ? inlineEdit.fields
+      : [];
+
     return (
       <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm">
         <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-600">
@@ -723,46 +803,176 @@ export default function QuickBuilderPage() {
         )}
 
         {["relationship", "relation"].includes(type) && (
-          <div className="mb-4 grid gap-3 md:grid-cols-2">
-            <label className="space-y-1">
-              <span className="font-medium">Related content type slug</span>
-              <input
-                className="su-input"
-                value={cfg.relatedType || ""}
-                onChange={(e) => updateCfg({ relatedType: e.target.value })}
-                placeholder="movie, song, etc."
-              />
-            </label>
-            <div className="space-y-2">
-              <label className="flex items-center gap-2 text-xs">
+          <>
+            <div className="mb-4 grid gap-3 md:grid-cols-2">
+              <label className="space-y-1">
+                <span className="font-medium">Related content type slug</span>
                 <input
-                  type="checkbox"
-                  checked={!!cfg.multiple}
-                  onChange={(e) => updateCfg({ multiple: e.target.checked })}
+                  className="su-input"
+                  value={cfg.relatedType || ""}
+                  onChange={(e) => updateCfg({ relatedType: e.target.value })}
+                  placeholder="intended-parents"
                 />
-                <span>Allow multiple related items</span>
+                <div className="text-[11px] text-gray-500">
+                  Must match the content type <code>slug</code>.
+                </div>
               </label>
-              <label className="flex items-center gap-2 text-xs">
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={!!cfg.multiple}
+                    onChange={(e) => updateCfg({ multiple: e.target.checked })}
+                  />
+                  <span>Allow multiple related items</span>
+                </label>
+                <label className="flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={!!cfg.twoWay}
+                    onChange={(e) => updateCfg({ twoWay: e.target.checked })}
+                  />
+                  <span>Two-way relation (sync inverse)</span>
+                </label>
+              </div>
+              <label className="md:col-span-2 space-y-1">
+                <span className="font-medium text-xs">
+                  Inverse field key on related type
+                </span>
                 <input
-                  type="checkbox"
-                  checked={!!cfg.twoWay}
-                  onChange={(e) => updateCfg({ twoWay: e.target.checked })}
+                  className="su-input"
+                  value={cfg.inverseKey || ""}
+                  onChange={(e) => updateCfg({ inverseKey: e.target.value })}
+                  placeholder="e.g. surrogates"
                 />
-                <span>Two-way relation (sync inverse)</span>
               </label>
             </div>
-            <label className="md:col-span-2 space-y-1">
-              <span className="font-medium text-xs">
-                Inverse field key on related type
-              </span>
-              <input
-                className="su-input"
-                value={cfg.inverseKey || ""}
-                onChange={(e) => updateCfg({ inverseKey: e.target.value })}
-                placeholder="e.g. movies_for_artist"
-              />
-            </label>
-          </div>
+
+            {/* ✅ OPTION B: Inline Edit UI for relationship fields */}
+            <div className="mb-4 rounded-lg border border-gray-200 bg-white p-3">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-600">
+                Inline Edit (ServiceUp feature)
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="flex items-center gap-2 text-xs md:col-span-2">
+                  <input
+                    type="checkbox"
+                    checked={!!inlineEdit.enabled}
+                    onChange={(e) => updateInlineEdit({ enabled: e.target.checked })}
+                  />
+                  <span>
+                    Enable inline edit modal for this relationship field
+                  </span>
+                </label>
+
+                <label className="space-y-1">
+                  <span className="font-medium">Modal title</span>
+                  <input
+                    className="su-input"
+                    value={inlineEdit.title || ""}
+                    onChange={(e) => updateInlineEdit({ title: e.target.value })}
+                    placeholder="Edit Intended Parent Match Details"
+                    disabled={!inlineEdit.enabled}
+                  />
+                </label>
+
+                <label className="space-y-1">
+                  <span className="font-medium">Show core fields</span>
+                  <select
+                    className="su-input"
+                    value={
+                      inlineEdit.showCore === undefined
+                        ? "false"
+                        : inlineEdit.showCore
+                        ? "true"
+                        : "false"
+                    }
+                    onChange={(e) => updateInlineEdit({ showCore: e.target.value === "true" })}
+                    disabled={!inlineEdit.enabled}
+                  >
+                    <option value="false">No (recommended)</option>
+                    <option value="true">Yes</option>
+                  </select>
+                  <div className="text-[11px] text-gray-500">
+                    “Core fields” = title/slug style fields (if present). Usually you want this off.
+                  </div>
+                </label>
+
+                <div className="md:col-span-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="space-y-1">
+                      <div className="font-medium">Allowed fields</div>
+                      <div className="text-[11px] text-gray-500">
+                        Choose which fields are editable in the inline modal.
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className="su-btn su-btn-xs su-btn-ghost"
+                        disabled={!inlineEdit.enabled || !relatedFieldOptions.length}
+                        onClick={() => updateInlineEdit({ fields: relatedFieldOptions.map((x) => x.key) })}
+                      >
+                        Select all
+                      </button>
+                      <button
+                        type="button"
+                        className="su-btn su-btn-xs su-btn-ghost"
+                        disabled={!inlineEdit.enabled}
+                        onClick={() => updateInlineEdit({ fields: [] })}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+
+                  {!relatedSlug ? (
+                    <div className="mt-2 text-xs text-gray-500">
+                      Enter a related content type slug above to load its fields.
+                    </div>
+                  ) : loadingRelatedFields ? (
+                    <div className="mt-2 text-xs text-gray-500">
+                      Loading fields for <code>{relatedSlug}</code>…
+                    </div>
+                  ) : !relatedTypeObj ? (
+                    <div className="mt-2 text-xs text-red-600">
+                      Could not find content type with slug <code>{relatedSlug}</code>.
+                      (It must exist before we can populate fields.)
+                    </div>
+                  ) : !relatedFieldOptions.length ? (
+                    <div className="mt-2 text-xs text-gray-500">
+                      No fields found on <code>{relatedSlug}</code> yet.
+                      Add fields to that content type, then come back here.
+                    </div>
+                  ) : (
+                    <select
+                      className="su-input mt-2"
+                      multiple
+                      value={inlineAllowedFields}
+                      disabled={!inlineEdit.enabled}
+                      onChange={(e) => {
+                        const vals = Array.from(e.target.selectedOptions).map((o) => o.value);
+                        updateInlineEdit({ fields: vals });
+                      }}
+                      style={{ minHeight: 140 }}
+                    >
+                      {relatedFieldOptions.map((f) => (
+                        <option key={f.key} value={f.key}>
+                          {f.label} ({f.key}){f.type ? ` — ${f.type}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+
+                  <div className="text-[11px] text-gray-500 mt-2">
+                    Stored at <code>field.config.inlineEdit</code> so it can be reused anywhere in ServiceUp.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
         )}
 
         {type === "relation_user" && (
@@ -1226,7 +1436,6 @@ export default function QuickBuilderPage() {
           />
         )}
 
-
         {(type === "date" || type === "datetime" || type === "time") && (
           <div className="mb-4 grid gap-3 md:grid-cols-2">
             {type !== "time" && (
@@ -1274,7 +1483,8 @@ export default function QuickBuilderPage() {
 
             {type === "time" && (
               <div className="text-[11px] text-gray-500 md:col-span-2">
-                Time display defaults to <code>6:50pm</code> style (lowercase am/pm).
+                Time display defaults to <code>6:50pm</code> style (lowercase
+                am/pm).
               </div>
             )}
           </div>
