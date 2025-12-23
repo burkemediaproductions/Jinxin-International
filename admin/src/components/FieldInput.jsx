@@ -222,7 +222,6 @@ function getPreviewTypeFromFile(meta) {
   return "other";
 }
 
-
 function getRelationshipTargetSlugFromField(field) {
   const cfg = getFieldConfig(field);
 
@@ -230,7 +229,7 @@ function getRelationshipTargetSlugFromField(field) {
   const v =
     cfg?.relation?.slug ||
     cfg?.relation?.content_type_slug ||
-    cfg?.relation?.contentType ||   // sometimes slug, sometimes id; we’ll still try it
+    cfg?.relation?.contentType || // sometimes slug, sometimes id; we’ll still try it
     cfg?.relation?.content_type ||
     cfg?.relation?.target ||
     cfg?.relatedType ||
@@ -243,7 +242,14 @@ function getRelationshipTargetSlugFromField(field) {
 
   // Sometimes stored as an object like { slug, id, contentType }
   if (v && typeof v === "object") {
-    return v.slug || v.contentType || v.relatedType || v.content_type_slug || v.id || null;
+    return (
+      v.slug ||
+      v.contentType ||
+      v.relatedType ||
+      v.content_type_slug ||
+      v.id ||
+      null
+    );
   }
 
   return v ? String(v) : null;
@@ -353,7 +359,9 @@ function UserRelationField({ field, value, onChange, resolved }) {
 
   const selectedIds = multiple
     ? (Array.isArray(normalized) ? normalized : [])
-    : (normalized ? [normalized] : []);
+    : normalized
+    ? [normalized]
+    : [];
 
   const selectedUsers = selectedIds.map((id) => ({
     id,
@@ -362,7 +370,9 @@ function UserRelationField({ field, value, onChange, resolved }) {
 
   if (!multiple) {
     const selectedUser = normalized
-      ? (usersById[normalized] || results.find((u) => u.id === normalized) || null)
+      ? usersById[normalized] ||
+        results.find((u) => u.id === normalized) ||
+        null
       : null;
 
     return (
@@ -391,11 +401,15 @@ function UserRelationField({ field, value, onChange, resolved }) {
           <option value="">— Select a user —</option>
           {normalized && <option value="__clear__">Clear selection</option>}
 
-          {normalized && selectedUser && !results.some((u) => u.id === normalized) && (
-            <option value={normalized}>
-              {userLabel(selectedUser, display) || selectedUser.email || normalized}
-            </option>
-          )}
+          {normalized &&
+            selectedUser &&
+            !results.some((u) => u.id === normalized) && (
+              <option value={normalized}>
+                {userLabel(selectedUser, display) ||
+                  selectedUser.email ||
+                  normalized}
+              </option>
+            )}
 
           {results.map((u) => (
             <option key={u.id} value={u.id}>
@@ -671,7 +685,10 @@ function AddressField({ field, value, onChange }) {
           <label style={{ fontSize: 12, opacity: 0.8, display: "block" }}>
             {cfg.line1.label}
           </label>
-          <input value={a.line1} onChange={(e) => set({ line1: e.target.value })} />
+          <input
+            value={a.line1}
+            onChange={(e) => set({ line1: e.target.value })}
+          />
         </div>
       )}
       {cfg.line2.show && (
@@ -679,7 +696,10 @@ function AddressField({ field, value, onChange }) {
           <label style={{ fontSize: 12, opacity: 0.8, display: "block" }}>
             {cfg.line2.label}
           </label>
-          <input value={a.line2} onChange={(e) => set({ line2: e.target.value })} />
+          <input
+            value={a.line2}
+            onChange={(e) => set({ line2: e.target.value })}
+          />
         </div>
       )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
@@ -688,7 +708,10 @@ function AddressField({ field, value, onChange }) {
             <label style={{ fontSize: 12, opacity: 0.8, display: "block" }}>
               {cfg.city.label}
             </label>
-            <input value={a.city} onChange={(e) => set({ city: e.target.value })} />
+            <input
+              value={a.city}
+              onChange={(e) => set({ city: e.target.value })}
+            />
           </div>
         )}
         {cfg.state.show && (
@@ -696,7 +719,10 @@ function AddressField({ field, value, onChange }) {
             <label style={{ fontSize: 12, opacity: 0.8, display: "block" }}>
               {cfg.state.label}
             </label>
-            <input value={a.state} onChange={(e) => set({ state: e.target.value })} />
+            <input
+              value={a.state}
+              onChange={(e) => set({ state: e.target.value })}
+            />
           </div>
         )}
       </div>
@@ -706,7 +732,10 @@ function AddressField({ field, value, onChange }) {
             <label style={{ fontSize: 12, opacity: 0.8, display: "block" }}>
               {cfg.postal.label}
             </label>
-            <input value={a.postal} onChange={(e) => set({ postal: e.target.value })} />
+            <input
+              value={a.postal}
+              onChange={(e) => set({ postal: e.target.value })}
+            />
           </div>
         )}
         {cfg.country.show && (
@@ -714,7 +743,10 @@ function AddressField({ field, value, onChange }) {
             <label style={{ fontSize: 12, opacity: 0.8, display: "block" }}>
               {cfg.country.label}
             </label>
-            <input value={a.country} onChange={(e) => set({ country: e.target.value })} />
+            <input
+              value={a.country}
+              onChange={(e) => set({ country: e.target.value })}
+            />
           </div>
         )}
       </div>
@@ -1205,12 +1237,14 @@ function computeSubfieldVisibility({ subfields, rules, row }) {
 function applyRowLabelTemplate(tpl, row, index) {
   const s = String(tpl || "").trim();
   if (!s) return `Row ${index + 1}`;
-  return s.replace(/\{#\}/g, String(index + 1)).replace(/\{([^}]+)\}/g, (_, k) => {
-    const key = String(k || "").trim();
-    if (!key) return "";
-    const v = row?.[key];
-    return v == null ? "" : String(v);
-  });
+  return s
+    .replace(/\{#\}/g, String(index + 1))
+    .replace(/\{([^}]+)\}/g, (_, k) => {
+      const key = String(k || "").trim();
+      if (!key) return "";
+      const v = row?.[key];
+      return v == null ? "" : String(v);
+    });
 }
 
 function RepeaterField({
@@ -1228,10 +1262,8 @@ function RepeaterField({
 
   const rows = coerceArray(value).map((r) => (r && typeof r === "object" ? r : {}));
 
-  const minRows =
-    Number.isFinite(cfg.minRows) ? Number(cfg.minRows) : null;
-  const maxRows =
-    Number.isFinite(cfg.maxRows) ? Number(cfg.maxRows) : null;
+  const minRows = Number.isFinite(cfg.minRows) ? Number(cfg.minRows) : null;
+  const maxRows = Number.isFinite(cfg.maxRows) ? Number(cfg.maxRows) : null;
 
   const addLabel = cfg.addLabel || "Add row";
   const layout = cfg.layout || "cards"; // cards | table
@@ -1298,7 +1330,8 @@ function RepeaterField({
             opacity: 0.8,
           }}
         >
-          Nested repeater disabled at depth {depth}. Increase “Max nesting depth” on the parent repeater config.
+          Nested repeater disabled at depth {depth}. Increase “Max nesting depth”
+          on the parent repeater config.
         </div>
       );
     }
@@ -1349,7 +1382,13 @@ function RepeaterField({
                 background: "var(--su-surface, #fff)",
               }}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 8,
+                }}
+              >
                 <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}>
                   {label}
                 </div>
@@ -1442,7 +1481,10 @@ function RepeaterField({
 
               return (
                 <tr key={rowIndex} className="border-b border-gray-100 align-top">
-                  <td className="py-2 pr-2" style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}>
+                  <td
+                    className="py-2 pr-2"
+                    style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}
+                  >
                     {label}
                   </td>
 
@@ -1540,7 +1582,6 @@ export function formatFieldValueForList(fieldDef, rawValue, opts = {}) {
 
   // --- Repeaters ---
   if (type === "repeater") {
-    
     const subfields = Array.isArray(cfg.subfields) ? cfg.subfields : [];
     const rows = Array.isArray(rawValue) ? rawValue : [];
 
@@ -1566,11 +1607,11 @@ export function formatFieldValueForList(fieldDef, rawValue, opts = {}) {
         const v = r?.[k];
         if (empty(v)) continue;
 
-        const piece = formatFieldValueForList(
-          { ...(sf || {}), key: k },
-          v,
-          { labelLimit: 2, depth: depth + 1, maxDepth }
-        );
+        const piece = formatFieldValueForList({ ...(sf || {}), key: k }, v, {
+          labelLimit: 2,
+          depth: depth + 1,
+          maxDepth,
+        });
 
         if (piece) parts.push(piece);
         if (parts.length >= 2) break; // keep rows compact
@@ -1613,7 +1654,6 @@ export function formatFieldValueForList(fieldDef, rawValue, opts = {}) {
     if (Array.isArray(rawValue)) return rawValue.map(String).join(", ");
     return String(rawValue);
   }
-
 
   // --- Date / Time / Datetime (pretty display) ---
   if (type === "date") {
@@ -1684,9 +1724,7 @@ export function formatFieldValueForList(fieldDef, rawValue, opts = {}) {
 
   if (type === "json") {
     try {
-      return typeof rawValue === "string"
-        ? rawValue
-        : JSON.stringify(rawValue);
+      return typeof rawValue === "string" ? rawValue : JSON.stringify(rawValue);
     } catch {
       return "[json]";
     }
@@ -1698,8 +1736,295 @@ export function formatFieldValueForList(fieldDef, rawValue, opts = {}) {
   return String(rawValue);
 }
 
+/** ------------------------------------------------------------------ */
+/** ✅ ServiceUp FEATURE: Inline Edit Related Entry (modal)              */
+/** ------------------------------------------------------------------ */
 
-function RelationEntryField({ field, value, onChange, relatedCache }) {
+async function fetchContentTypeBySlug(slug) {
+  const res = await api.get("/api/content-types");
+  const list = Array.isArray(res) ? res : res?.data || [];
+  const ct =
+    list.find(
+      (t) =>
+        String(t.slug || "").toLowerCase() === String(slug || "").toLowerCase()
+    ) || null;
+
+  if (!ct?.id) return null;
+
+  try {
+    const full = await api.get(`/api/content-types/${ct.id}?all=true`);
+    return full?.data || full || ct;
+  } catch {
+    return ct;
+  }
+}
+
+function pickEditableFieldsFromInlineConfig({ allFields, inlineCfg }) {
+  const allow = Array.isArray(inlineCfg?.fields)
+    ? inlineCfg.fields.map(String)
+    : null;
+
+  const defs = (Array.isArray(allFields) ? allFields : [])
+    .map((f) => {
+      if (!f) return null;
+      const key = f.field_key || f.key;
+      return key ? { ...f, key } : null;
+    })
+    .filter(Boolean);
+
+  if (!allow || !allow.length) return defs;
+
+  const allowSet = new Set(allow);
+  return defs.filter((d) => allowSet.has(d.key));
+}
+
+function InlineRelatedEditorModal({
+  open,
+  onClose,
+  relSlug,
+  relId,
+  inlineCfg,
+  relatedCache,
+  choicesCache,
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [ct, setCt] = useState(null);
+  const [entry, setEntry] = useState(null);
+
+  const [title, setTitle] = useState("");
+  const [slug, setSlug] = useState("");
+  const [status, setStatus] = useState("draft");
+  const [data, setData] = useState({});
+
+  useEffect(() => {
+    let alive = true;
+
+    async function load() {
+      if (!open || !relSlug || !relId) return;
+
+      setBusy(true);
+      setErr("");
+
+      try {
+        const [ctRes, entryRes] = await Promise.all([
+          fetchContentTypeBySlug(relSlug),
+          api.get(
+            `/api/content/${encodeURIComponent(relSlug)}/${encodeURIComponent(
+              relId
+            )}`
+          ),
+        ]);
+
+        if (!alive) return;
+
+        const ctFull = ctRes || null;
+        const e = entryRes?.entry || entryRes?.data || entryRes;
+
+        setCt(ctFull);
+        setEntry(e);
+
+        const rawData =
+          e && typeof e.data === "object" && e.data !== null ? e.data : {};
+        const entryData =
+          rawData && typeof rawData === "object" ? { ...rawData } : {};
+
+        setTitle(e?.title ?? entryData.title ?? entryData._title ?? "");
+        setSlug(e?.slug ?? entryData.slug ?? entryData._slug ?? "");
+        setStatus(e?.status ?? entryData.status ?? entryData._status ?? "draft");
+        setData(entryData || {});
+      } catch (e) {
+        if (!alive) return;
+        setErr(e?.message || "Failed to load related entry");
+      } finally {
+        if (alive) setBusy(false);
+      }
+    }
+
+    load();
+    return () => {
+      alive = false;
+    };
+  }, [open, relSlug, relId]);
+
+  const fields = useMemo(() => {
+    const all = Array.isArray(ct?.fields) ? ct.fields : [];
+    return pickEditableFieldsFromInlineConfig({ allFields: all, inlineCfg });
+  }, [ct, inlineCfg]);
+
+  async function save() {
+    if (!relSlug || !relId) return;
+
+    setBusy(true);
+    setErr("");
+
+    try {
+      const mergedData = {
+        ...(data || {}),
+        title: title || "",
+        slug: slug || "",
+        status: status || "draft",
+        _title: title || "",
+        _slug: slug || "",
+        _status: status || "draft",
+      };
+
+      const payload = {
+        title: title || "",
+        slug: slug || "",
+        status: status || "draft",
+        data: mergedData,
+      };
+
+      const res = await api.put(
+        `/api/content/${encodeURIComponent(relSlug)}/${encodeURIComponent(
+          relId
+        )}`,
+        payload
+      );
+
+      const updated = res?.entry || res?.data || res;
+      setEntry(updated);
+    } catch (e) {
+      setErr(e?.message || "Failed to save related entry");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={
+        inlineCfg?.title
+          ? String(inlineCfg.title)
+          : `Edit related: ${relSlug}${relId ? ` (${relId})` : ""}`
+      }
+    >
+      <div style={{ padding: 14, overflow: "auto", height: "100%" }}>
+        {busy && !entry ? (
+          <div style={{ fontSize: 13, opacity: 0.75 }}>Loading…</div>
+        ) : err ? (
+          <div style={{ fontSize: 13, color: "#b91c1c" }}>{err}</div>
+        ) : !entry ? (
+          <div style={{ fontSize: 13, opacity: 0.75 }}>
+            No related entry selected.
+          </div>
+        ) : (
+          <div style={{ display: "grid", gap: 14 }}>
+            {inlineCfg?.showCore === true && (
+              <div
+                style={{
+                  display: "grid",
+                  gap: 10,
+                  border: "1px solid var(--su-border,#e5e7eb)",
+                  borderRadius: 12,
+                  padding: 12,
+                }}
+              >
+                <label style={{ fontSize: 13 }}>
+                  Title
+                  <input
+                    className="su-input"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                  />
+                </label>
+
+                <label style={{ fontSize: 13 }}>
+                  Slug
+                  <input
+                    className="su-input"
+                    value={slug}
+                    onChange={(e) => setSlug(e.target.value)}
+                  />
+                </label>
+
+                <label style={{ fontSize: 13 }}>
+                  Status
+                  <select
+                    className="su-select"
+                    value={status}
+                    onChange={(e) => setStatus(e.target.value)}
+                  >
+                    <option value="draft">Draft</option>
+                    <option value="published">Published</option>
+                    <option value="archived">Archived</option>
+                  </select>
+                </label>
+              </div>
+            )}
+
+            <div style={{ display: "grid", gap: 12 }}>
+              {fields.map((def) => {
+                const key = def?.key;
+                if (!key) return null;
+                const v = data?.[key];
+
+                return (
+                  <div key={key} style={{ display: "grid", gap: 6 }}>
+                    <label style={{ fontSize: 13, fontWeight: 700 }}>
+                      {def.label || def.name || key}
+                    </label>
+
+                    <FieldInput
+                      field={def}
+                      value={v}
+                      onChange={(next) =>
+                        setData((prev) => ({ ...(prev || {}), [key]: next }))
+                      }
+                      relatedCache={relatedCache}
+                      choicesCache={choicesCache}
+                      entryContext={{ typeSlug: relSlug, entryId: relId }}
+                      resolved={entry?._resolved || null}
+                    />
+
+                    {def.help_text ? (
+                      <div style={{ fontSize: 12, opacity: 0.7 }}>
+                        {def.help_text}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button
+                className="su-btn"
+                type="button"
+                onClick={onClose}
+                disabled={busy}
+              >
+                Close
+              </button>
+              <button
+                className="su-btn primary"
+                type="button"
+                onClick={save}
+                disabled={busy}
+              >
+                {busy ? "Saving…" : "Save changes"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+/** ------------------------------------------------------------------ */
+/** ✅ UPDATED RelationEntryField: adds inline edit modal support         */
+/** ------------------------------------------------------------------ */
+function RelationEntryField({
+  field,
+  value,
+  onChange,
+  relatedCache,
+  choicesCache,
+}) {
   const cfg = getFieldConfig(field);
 
   // Pull target slug from multiple possible config shapes
@@ -1719,6 +2044,15 @@ function RelationEntryField({ field, value, onChange, relatedCache }) {
       : relRaw;
 
   const allowMultiple = cfg?.relation?.kind === "many" || !!cfg?.multiple;
+
+  // ✅ Inline edit config (new feature)
+  const inlineCfg =
+    cfg?.inlineEdit && typeof cfg.inlineEdit === "object" ? cfg.inlineEdit : {};
+  const inlineEnabled = inlineCfg?.enabled === true;
+
+  const selectedId = !allowMultiple && value ? String(value) : "";
+
+  const [inlineOpen, setInlineOpen] = useState(false);
 
   // try cache first
   const cached =
@@ -1750,21 +2084,22 @@ function RelationEntryField({ field, value, onChange, relatedCache }) {
       setLoading(true);
       setErr("");
       try {
-        const res = await api.get(`/api/content/${encodeURIComponent(relSlug)}?limit=200`);
+        const res = await api.get(
+          `/api/content/${encodeURIComponent(relSlug)}?limit=200`
+        );
         const data = res?.data ?? res;
 
         let list = [];
 
-          if (Array.isArray(data)) {
+        if (Array.isArray(data)) {
           list = data;
-          } else if (Array.isArray(data?.entries)) {
+        } else if (Array.isArray(data?.entries)) {
           list = data.entries;
-          } else if (Array.isArray(data?.items)) {
+        } else if (Array.isArray(data?.items)) {
           list = data.items;
-          } else {
+        } else {
           list = [];
-          }
-
+        }
 
         if (!alive) return;
         setItems(Array.isArray(list) ? list : []);
@@ -1798,7 +2133,13 @@ function RelationEntryField({ field, value, onChange, relatedCache }) {
   }
 
   function labelFor(ent) {
-    return ent?.data?.title || ent?.title || ent?.data?.name || ent?.name || ent?.id;
+    return (
+      ent?.data?.title ||
+      ent?.title ||
+      ent?.data?.name ||
+      ent?.name ||
+      ent?.id
+    );
   }
 
   if (!relSlug) {
@@ -1820,14 +2161,44 @@ function RelationEntryField({ field, value, onChange, relatedCache }) {
             </option>
           ))}
         </select>
-        <div style={{ fontSize: 11, opacity: 0.7 }}>
-          Source: {relSlug} {loading ? "· loading…" : ""} {err ? `· ${err}` : ""}
+
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {inlineEnabled && selectedId ? (
+            <button
+              type="button"
+              className="su-btn"
+              onClick={() => setInlineOpen(true)}
+              style={{ padding: "6px 10px" }}
+            >
+              Edit selected
+            </button>
+          ) : null}
+
+          <div style={{ fontSize: 11, opacity: 0.7 }}>
+            Source: {relSlug} {loading ? "· loading…" : ""}{" "}
+            {err ? `· ${err}` : ""}
+          </div>
         </div>
+
+        {/* ✅ Inline edit modal */}
+        <InlineRelatedEditorModal
+          open={inlineOpen}
+          onClose={() => setInlineOpen(false)}
+          relSlug={String(relSlug)}
+          relId={selectedId}
+          inlineCfg={inlineCfg}
+          relatedCache={relatedCache}
+          choicesCache={choicesCache}
+        />
       </div>
     );
   }
 
-  const current = Array.isArray(value) ? value.map(String) : value ? [String(value)] : [];
+  const current = Array.isArray(value)
+    ? value.map(String)
+    : value
+    ? [String(value)]
+    : [];
   const size = Math.min(8, Math.max(3, items.length || 3));
 
   return (
@@ -1837,7 +2208,9 @@ function RelationEntryField({ field, value, onChange, relatedCache }) {
         size={size}
         value={current}
         onChange={(e) => {
-          const selected = Array.from(e.target.selectedOptions).map((o) => o.value);
+          const selected = Array.from(e.target.selectedOptions).map(
+            (o) => o.value
+          );
           onChange(selected);
         }}
         style={{ minWidth: 260 }}
@@ -1854,7 +2227,6 @@ function RelationEntryField({ field, value, onChange, relatedCache }) {
     </div>
   );
 }
-
 
 /**
  * FieldInput
@@ -2086,21 +2458,18 @@ export default function FieldInput({
     );
   }
 
-
-
-// -- Relation ----   
-if (fieldType === "relation" || fieldType === "relationship") {
-  return (
-    <RelationEntryField
-      field={field}
-      value={value}
-      onChange={onChange}
-      relatedCache={relatedCache}
-    />
-  );
-}
-
-
+  // -- Relation ----
+  if (fieldType === "relation" || fieldType === "relationship") {
+    return (
+      <RelationEntryField
+        field={field}
+        value={value}
+        onChange={onChange}
+        relatedCache={relatedCache}
+        choicesCache={choicesCache}
+      />
+    );
+  }
 
   // ---- Advanced ----
   if (fieldType === "rich_text") {
@@ -2148,7 +2517,7 @@ if (fieldType === "relation" || fieldType === "relationship") {
     );
   }
 
-    if (fieldType === "datetime") {
+  if (fieldType === "datetime") {
     const tz = cfg?.defaultTZ || "America/Los_Angeles";
     const locale = cfg?.locale || "en-US";
 
@@ -2232,7 +2601,6 @@ if (fieldType === "relation" || fieldType === "relationship") {
       </div>
     );
   }
-
 
   if (fieldType === "daterange") {
     const tz = cfg?.defaultTZ || Intl.DateTimeFormat().resolvedOptions().timeZone;
