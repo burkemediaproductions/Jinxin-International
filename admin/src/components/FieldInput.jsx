@@ -1528,6 +1528,8 @@ export function formatFieldValueForList(fieldDef, rawValue, opts = {}) {
   const depth = Number.isFinite(opts.depth) ? opts.depth : 1;
   const maxDepth = Number.isFinite(opts.maxDepth) ? opts.maxDepth : 2;
 
+  const cfg = getFieldConfig(fieldDef);
+
   const empty = (v) =>
     v == null ||
     (typeof v === "string" && v.trim() === "") ||
@@ -1538,7 +1540,7 @@ export function formatFieldValueForList(fieldDef, rawValue, opts = {}) {
 
   // --- Repeaters ---
   if (type === "repeater") {
-    const cfg = getFieldConfig(fieldDef);
+    
     const subfields = Array.isArray(cfg.subfields) ? cfg.subfields : [];
     const rows = Array.isArray(rawValue) ? rawValue : [];
 
@@ -1610,6 +1612,46 @@ export function formatFieldValueForList(fieldDef, rawValue, opts = {}) {
   if (type === "relation" || type === "relationship") {
     if (Array.isArray(rawValue)) return rawValue.map(String).join(", ");
     return String(rawValue);
+  }
+
+
+  // --- Date / Time / Datetime (pretty display) ---
+  if (type === "date") {
+    const style = cfg?.dateStyle || "long";
+    const locale = cfg?.locale || "en-US";
+    return rawValue ? fmtDateISO(String(rawValue), locale, style) : "";
+  }
+
+  if (type === "datetime") {
+    const tz = cfg?.defaultTZ || "America/Los_Angeles";
+    const locale = cfg?.locale || "en-US";
+
+    const utc =
+      rawValue && typeof rawValue === "object"
+        ? rawValue.utc
+        : rawValue
+        ? String(rawValue)
+        : "";
+
+    return utc ? fmtDateTimeUTC(utc, tz, locale) : "";
+  }
+
+  if (type === "time") {
+    const locale = cfg?.locale || "en-US";
+
+    // rawValue can be "HH:mm" or an object { time, tz }
+    const t =
+      rawValue && typeof rawValue === "object"
+        ? rawValue.time
+        : typeof rawValue === "string"
+        ? rawValue
+        : "";
+
+    if (!t) return "";
+
+    // Dummy date so Intl can format; fmtTimeShortLower lowercases AM/PM
+    const d = new Date(`1970-01-01T${t}:00Z`);
+    return fmtTimeShortLower(d, locale);
   }
 
   // --- Common objects ---
