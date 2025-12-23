@@ -1226,6 +1226,60 @@ export default function QuickBuilderPage() {
           />
         )}
 
+
+        {(type === "date" || type === "datetime" || type === "time") && (
+          <div className="mb-4 grid gap-3 md:grid-cols-2">
+            {type !== "time" && (
+              <label className="space-y-1">
+                <span className="font-medium">Date style</span>
+                <select
+                  className="su-input"
+                  value={cfg.dateStyle || "long"}
+                  onChange={(e) => updateCfg({ dateStyle: e.target.value })}
+                >
+                  <option value="long">Long (December 22, 2025)</option>
+                  <option value="medium">Medium</option>
+                  <option value="short">Short</option>
+                </select>
+                <div className="text-[11px] text-gray-500">
+                  Used for display in editors + lists/widgets.
+                </div>
+              </label>
+            )}
+
+            {type === "datetime" && (
+              <label className="space-y-1">
+                <span className="font-medium">Default timezone</span>
+                <input
+                  className="su-input"
+                  value={cfg.defaultTZ || "America/Los_Angeles"}
+                  onChange={(e) => updateCfg({ defaultTZ: e.target.value })}
+                  placeholder="America/Los_Angeles"
+                />
+                <div className="text-[11px] text-gray-500">
+                  Used when converting selected date+time into UTC.
+                </div>
+              </label>
+            )}
+
+            <label className="space-y-1 md:col-span-2">
+              <span className="font-medium">Locale</span>
+              <input
+                className="su-input"
+                value={cfg.locale || "en-US"}
+                onChange={(e) => updateCfg({ locale: e.target.value })}
+                placeholder="en-US"
+              />
+            </label>
+
+            {type === "time" && (
+              <div className="text-[11px] text-gray-500 md:col-span-2">
+                Time display defaults to <code>6:50pm</code> style (lowercase am/pm).
+              </div>
+            )}
+          </div>
+        )}
+
         {![
           "radio",
           "dropdown",
@@ -1240,6 +1294,9 @@ export default function QuickBuilderPage() {
           "name",
           "address",
           "repeater",
+          "date",
+          "datetime",
+          "time",
         ].includes(type) &&
           !supportsSubfields(type) && (
             <div className="text-xs text-gray-500">
