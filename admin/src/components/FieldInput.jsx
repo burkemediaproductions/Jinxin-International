@@ -1821,7 +1821,7 @@ function InlineRelatedEditorModal({
         setCt(ctRes);
 
         // Load entry
-        const eRes = await api.get(`/api/entries/${relSlug}/${relId}`);
+        const eRes = await api.get(`/api/content/${encodeURIComponent(relSlug)}/${relId}`);
 
         if (!alive) return;
 
@@ -1864,7 +1864,7 @@ function InlineRelatedEditorModal({
     setErr("");
 
     try {
-      await api.put(`/api/entries/${relSlug}/${relId}`, {
+      await api.put(`/api/content/${encodeURIComponent(relSlug)}/${relId}`, {
         title,
         slug,
         status,
