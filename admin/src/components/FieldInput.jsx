@@ -1786,6 +1786,7 @@ function InlineRelatedEditorModal({
   inlineCfg,
   relatedCache,
   choicesCache,
+  renderMode = "modal", // "modal" | "inline"
 }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -1797,43 +1798,35 @@ function InlineRelatedEditorModal({
   const [status, setStatus] = useState("draft");
   const [data, setData] = useState({});
 
+  const effectiveOpen = renderMode === "inline" ? true : open;
+
   useEffect(() => {
     let alive = true;
 
     async function load() {
-      if (!open || !relSlug || !relId) return;
+      if (!effectiveOpen || !relSlug || !relId) return;
 
       setBusy(true);
       setErr("");
 
       try {
-        const [ctRes, entryRes] = await Promise.all([
-          fetchContentTypeBySlug(relSlug),
-          api.get(
-            `/api/content/${encodeURIComponent(relSlug)}/${encodeURIComponent(
-              relId
-            )}`
-          ),
-        ]);
+        // Load content type by slug
+        const ctRes = await api.get(`/api/content-types/slug/${relSlug}`);
+        if (!alive) return;
+        setCt(ctRes);
 
+        // Load entry
+        const eRes = await api.get(`/api/entries/${relSlug}/${relId}`);
         if (!alive) return;
 
-        const ctFull = ctRes || null;
-        const e = entryRes?.entry || entryRes?.data || entryRes;
+        setEntry(eRes);
 
-        setCt(ctFull);
-        setEntry(e);
-
-        const rawData =
-          e && typeof e.data === "object" && e.data !== null ? e.data : {};
-        const entryData =
-          rawData && typeof rawData === "object" ? { ...rawData } : {};
-
-        setTitle(e?.title ?? entryData.title ?? entryData._title ?? "");
-        setSlug(e?.slug ?? entryData.slug ?? entryData._slug ?? "");
-        setStatus(e?.status ?? entryData.status ?? entryData._status ?? "draft");
-        setData(entryData || {});
+        setTitle(eRes?.title || "");
+        setSlug(eRes?.slug || "");
+        setStatus(eRes?.status || "draft");
+        setData(eRes?.data || {});
       } catch (e) {
+        console.error(e);
         if (!alive) return;
         setErr(e?.message || "Failed to load related entry");
       } finally {
@@ -1845,175 +1838,172 @@ function InlineRelatedEditorModal({
     return () => {
       alive = false;
     };
-  }, [open, relSlug, relId]);
+  }, [effectiveOpen, relSlug, relId]);
 
-  const fields = useMemo(() => {
-    const all = Array.isArray(ct?.fields) ? ct.fields : [];
-    return pickEditableFieldsFromInlineConfig({ allFields: all, inlineCfg });
-  }, [ct, inlineCfg]);
+  if (!effectiveOpen) return null;
+  if (!relSlug || !relId) return null;
+
+  const allowed = Array.isArray(inlineCfg?.fields) ? inlineCfg.fields : [];
+  const showCore = inlineCfg?.showCore === true;
+
+  const fields = Array.isArray(ct?.fields) ? ct.fields : [];
+  const allowedFields = allowed.length
+    ? fields.filter((f) => allowed.includes(f.field_key))
+    : fields;
 
   async function save() {
-    if (!relSlug || !relId) return;
-
+    if (!ct || !entry) return;
     setBusy(true);
     setErr("");
 
     try {
-      const mergedData = {
-        ...(data || {}),
-        title: title || "",
-        slug: slug || "",
-        status: status || "draft",
-        _title: title || "",
-        _slug: slug || "",
-        _status: status || "draft",
-      };
+      await api.put(`/api/entries/${relSlug}/${relId}`, {
+        title,
+        slug,
+        status,
+        data,
+      });
 
-      const payload = {
-        title: title || "",
-        slug: slug || "",
-        status: status || "draft",
-        data: mergedData,
-      };
+      // (Optional) update any caches
+      if (relatedCache && typeof relatedCache === "object") {
+        // no-op here unless you want to mutate cache
+      }
 
-      const res = await api.put(
-        `/api/content/${encodeURIComponent(relSlug)}/${encodeURIComponent(
-          relId
-        )}`,
-        payload
-      );
-
-      const updated = res?.entry || res?.data || res;
-      setEntry(updated);
+      if (renderMode === "modal") {
+        onClose?.();
+      }
     } catch (e) {
+      console.error(e);
       setErr(e?.message || "Failed to save related entry");
     } finally {
       setBusy(false);
     }
   }
 
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title={
-        inlineCfg?.title
-          ? String(inlineCfg.title)
-          : `Edit related: ${relSlug}${relId ? ` (${relId})` : ""}`
-      }
-    >
-      <div style={{ padding: 14, overflow: "auto", height: "100%" }}>
-        {busy && !entry ? (
-          <div style={{ fontSize: 13, opacity: 0.75 }}>Loading…</div>
-        ) : err ? (
-          <div style={{ fontSize: 13, color: "#b91c1c" }}>{err}</div>
-        ) : !entry ? (
-          <div style={{ fontSize: 13, opacity: 0.75 }}>
-            No related entry selected.
-          </div>
-        ) : (
-          <div style={{ display: "grid", gap: 14 }}>
-            {inlineCfg?.showCore === true && (
-              <div
-                style={{
-                  display: "grid",
-                  gap: 10,
-                  border: "1px solid var(--su-border,#e5e7eb)",
-                  borderRadius: 12,
-                  padding: 12,
-                }}
-              >
-                <label style={{ fontSize: 13 }}>
-                  Title
-                  <input
-                    className="su-input"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                  />
-                </label>
+  const body = (
+    <div style={{ display: "grid", gap: 10 }}>
+      {renderMode === "inline" ? (
+        <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.9 }}>
+          {inlineCfg?.title || "Edit related"}
+        </div>
+      ) : null}
 
-                <label style={{ fontSize: 13 }}>
-                  Slug
-                  <input
-                    className="su-input"
-                    value={slug}
-                    onChange={(e) => setSlug(e.target.value)}
-                  />
-                </label>
+      {err ? (
+        <div style={{ color: "#b91c1c", fontSize: 12 }}>{err}</div>
+      ) : null}
 
-                <label style={{ fontSize: 13 }}>
-                  Status
-                  <select
-                    className="su-select"
-                    value={status}
-                    onChange={(e) => setStatus(e.target.value)}
-                  >
-                    <option value="draft">Draft</option>
-                    <option value="published">Published</option>
-                    <option value="archived">Archived</option>
-                  </select>
-                </label>
-              </div>
-            )}
+      {busy && !entry ? (
+        <div style={{ fontSize: 12, opacity: 0.75 }}>Loading…</div>
+      ) : null}
 
-            <div style={{ display: "grid", gap: 12 }}>
-              {fields.map((def) => {
-                const key = def?.key;
-                if (!key) return null;
-                const v = data?.[key];
+      {entry ? (
+        <>
+          {showCore ? (
+            <div style={{ display: "grid", gap: 10 }}>
+              <label style={{ display: "grid", gap: 4 }}>
+                <span style={{ fontSize: 12, opacity: 0.8 }}>Title</span>
+                <input
+                  className="su-input"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                />
+              </label>
 
-                return (
-                  <div key={key} style={{ display: "grid", gap: 6 }}>
-                    <label style={{ fontSize: 13, fontWeight: 700 }}>
-                      {def.label || def.name || key}
-                    </label>
+              <label style={{ display: "grid", gap: 4 }}>
+                <span style={{ fontSize: 12, opacity: 0.8 }}>Slug</span>
+                <input
+                  className="su-input"
+                  value={slug}
+                  onChange={(e) => setSlug(e.target.value)}
+                />
+              </label>
 
-                    <FieldInput
-                      field={def}
-                      value={v}
-                      onChange={(next) =>
-                        setData((prev) => ({ ...(prev || {}), [key]: next }))
-                      }
-                      relatedCache={relatedCache}
-                      choicesCache={choicesCache}
-                      entryContext={{ typeSlug: relSlug, entryId: relId }}
-                      resolved={entry?._resolved || null}
-                    />
-
-                    {def.help_text ? (
-                      <div style={{ fontSize: 12, opacity: 0.7 }}>
-                        {def.help_text}
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
+              <label style={{ display: "grid", gap: 4 }}>
+                <span style={{ fontSize: 12, opacity: 0.8 }}>Status</span>
+                <select
+                  className="su-input"
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value)}
+                >
+                  <option value="draft">Draft</option>
+                  <option value="published">Published</option>
+                </select>
+              </label>
             </div>
+          ) : null}
 
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <div style={{ display: "grid", gap: 12 }}>
+            {allowedFields.map((f) => {
+              const k = f.field_key;
+              return (
+                <div key={k} style={{ display: "grid", gap: 6 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600 }}>
+                    {f.label || k}
+                  </div>
+
+                  <FieldInput
+                    field={f}
+                    value={data?.[k]}
+                    onChange={(val) =>
+                      setData((prev) => ({ ...(prev || {}), [k]: val }))
+                    }
+                    relatedCache={relatedCache}
+                    choicesCache={choicesCache}
+                  />
+                </div>
+              );
+            })}
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            {renderMode === "modal" ? (
               <button
-                className="su-btn"
                 type="button"
+                className="su-btn su-btn-ghost"
                 onClick={onClose}
                 disabled={busy}
               >
                 Close
               </button>
-              <button
-                className="su-btn primary"
-                type="button"
-                onClick={save}
-                disabled={busy}
-              >
-                {busy ? "Saving…" : "Save changes"}
-              </button>
-            </div>
+            ) : null}
+
+            <button
+              type="button"
+              className="su-btn"
+              onClick={save}
+              disabled={busy}
+            >
+              {busy ? "Saving…" : "Save changes"}
+            </button>
           </div>
-        )}
+        </>
+      ) : null}
+    </div>
+  );
+
+  if (renderMode === "inline") {
+    return (
+      <div
+        style={{
+          marginTop: 10,
+          padding: 12,
+          border: "1px solid rgba(0,0,0,.12)",
+          borderRadius: 10,
+          background: "rgba(0,0,0,.02)",
+        }}
+      >
+        {body}
       </div>
+    );
+  }
+
+  return (
+    <Modal open={open} title={inlineCfg?.title || "Edit related"} onClose={onClose}>
+      {body}
     </Modal>
   );
 }
+
 
 /** ------------------------------------------------------------------ */
 /** ✅ UPDATED RelationEntryField: adds inline edit modal support         */
@@ -2162,17 +2152,23 @@ function RelationEntryField({
           ))}
         </select>
 
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          {inlineEnabled && selectedId ? (
-            <button
-              type="button"
-              className="su-btn"
-              onClick={() => setInlineOpen(true)}
-              style={{ padding: "6px 10px" }}
-            >
-              Edit selected
-            </button>
-          ) : null}
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {(() => {
+            const mode = inlineCfg?.mode || "modal"; // "inline" | "modal" | "both"
+            const showButton =
+              inlineEnabled && selectedId && (mode === "modal" || mode === "both");
+
+            return showButton ? (
+              <button
+                type="button"
+                className="su-btn"
+                onClick={() => setInlineOpen(true)}
+                style={{ padding: "6px 10px" }}
+              >
+                Edit selected
+              </button>
+            ) : null;
+          })()}
 
           <div style={{ fontSize: 11, opacity: 0.7 }}>
             Source: {relSlug} {loading ? "· loading…" : ""}{" "}
@@ -2180,7 +2176,27 @@ function RelationEntryField({
           </div>
         </div>
 
-        {/* ✅ Inline edit modal */}
+        {/* ✅ Inline edit (rendered under the relationship field) */}
+        {(() => {
+          const mode = inlineCfg?.mode || "modal"; // "inline" | "modal" | "both"
+          const showInline =
+            inlineEnabled && selectedId && (mode === "inline" || mode === "both");
+
+          return showInline ? (
+            <InlineRelatedEditorModal
+              renderMode="inline"
+              open={true}
+              onClose={() => {}}
+              relSlug={String(relSlug)}
+              relId={selectedId}
+              inlineCfg={inlineCfg}
+              relatedCache={relatedCache}
+              choicesCache={choicesCache}
+            />
+          ) : null;
+        })()}
+
+        {/* ✅ Inline edit modal (existing behavior) */}
         <InlineRelatedEditorModal
           open={inlineOpen}
           onClose={() => setInlineOpen(false)}
