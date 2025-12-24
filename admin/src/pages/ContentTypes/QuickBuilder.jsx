@@ -585,7 +585,9 @@ export default function QuickBuilderPage() {
 
     const relatedTypeObj = useMemo(() => {
       if (!relatedSlug) return null;
-      return (types || []).find((t) => String(t.slug || "") === relatedSlug) || null;
+      return (
+        (types || []).find((t) => String(t.slug || "") === relatedSlug) || null
+      );
     }, [types, relatedSlug]);
 
     const [relatedFields, setRelatedFields] = useState([]);
@@ -644,9 +646,8 @@ export default function QuickBuilderPage() {
       updateCfg({ inlineEdit: { ...current, ...patch } });
     }
 
-    const inlineEdit = (cfg.inlineEdit && typeof cfg.inlineEdit === "object")
-      ? cfg.inlineEdit
-      : {};
+    const inlineEdit =
+      cfg.inlineEdit && typeof cfg.inlineEdit === "object" ? cfg.inlineEdit : {};
 
     // Choice helpers
     function choicesToText(c) {
@@ -686,9 +687,9 @@ export default function QuickBuilderPage() {
     }
 
     function removeRepeaterSubfield(i) {
-      const next = (
-        Array.isArray(cfg.subfields) ? [...cfg.subfields] : []
-      ).filter((_, idx) => idx !== i);
+      const next = (Array.isArray(cfg.subfields) ? [...cfg.subfields] : []).filter(
+        (_, idx) => idx !== i
+      );
       updateCfg({ subfields: next });
     }
 
@@ -705,8 +706,7 @@ export default function QuickBuilderPage() {
       updateCfg({ subfields: next });
     }
 
-    const maxDepth =
-      Number.isFinite(cfg.maxDepth) ? Number(cfg.maxDepth) : 2;
+    const maxDepth = Number.isFinite(cfg.maxDepth) ? Number(cfg.maxDepth) : 2;
 
     const repeaterLayout = cfg.layout || "cards"; // cards | table
 
@@ -736,9 +736,7 @@ export default function QuickBuilderPage() {
 
     const availableTargets = useMemo(() => {
       const subs = Array.isArray(cfg.subfields) ? cfg.subfields : [];
-      return subs
-        .map((s) => String(s?.field_key || "").trim())
-        .filter(Boolean);
+      return subs.map((s) => String(s?.field_key || "").trim()).filter(Boolean);
     }, [cfg.subfields]);
 
     const relatedFieldOptions = useMemo(() => {
@@ -859,11 +857,28 @@ export default function QuickBuilderPage() {
                   <input
                     type="checkbox"
                     checked={!!inlineEdit.enabled}
-                    onChange={(e) => updateInlineEdit({ enabled: e.target.checked })}
+                    onChange={(e) =>
+                      updateInlineEdit({ enabled: e.target.checked })
+                    }
                   />
-                  <span>
-                    Enable inline edit modal for this relationship field
-                  </span>
+                  <span>Enable inline edit for this relationship field</span>
+                </label>
+
+                <label className="space-y-1">
+                  <span className="font-medium">Display mode</span>
+                  <select
+                    className="su-input"
+                    value={inlineEdit.mode || "modal"}
+                    onChange={(e) =>
+                      updateInlineEdit({ mode: e.target.value })
+                    }
+                    disabled={!inlineEdit.enabled}
+                  >
+                    <option value="inline">
+                      Inline (shown under relationship)
+                    </option>
+                    <option value="modal">Modal (button opens editor)</option>
+                  </select>
                 </label>
 
                 <label className="space-y-1">
@@ -888,14 +903,17 @@ export default function QuickBuilderPage() {
                         ? "true"
                         : "false"
                     }
-                    onChange={(e) => updateInlineEdit({ showCore: e.target.value === "true" })}
+                    onChange={(e) =>
+                      updateInlineEdit({ showCore: e.target.value === "true" })
+                    }
                     disabled={!inlineEdit.enabled}
                   >
                     <option value="false">No (recommended)</option>
                     <option value="true">Yes</option>
                   </select>
                   <div className="text-[11px] text-gray-500">
-                    “Core fields” = title/slug style fields (if present). Usually you want this off.
+                    “Core fields” = title/slug style fields (if present). Usually
+                    you want this off.
                   </div>
                 </label>
 
@@ -904,7 +922,7 @@ export default function QuickBuilderPage() {
                     <div className="space-y-1">
                       <div className="font-medium">Allowed fields</div>
                       <div className="text-[11px] text-gray-500">
-                        Choose which fields are editable in the inline modal.
+                        Choose which fields are editable in the inline editor.
                       </div>
                     </div>
 
@@ -912,8 +930,14 @@ export default function QuickBuilderPage() {
                       <button
                         type="button"
                         className="su-btn su-btn-xs su-btn-ghost"
-                        disabled={!inlineEdit.enabled || !relatedFieldOptions.length}
-                        onClick={() => updateInlineEdit({ fields: relatedFieldOptions.map((x) => x.key) })}
+                        disabled={
+                          !inlineEdit.enabled || !relatedFieldOptions.length
+                        }
+                        onClick={() =>
+                          updateInlineEdit({
+                            fields: relatedFieldOptions.map((x) => x.key),
+                          })
+                        }
                       >
                         Select all
                       </button>
@@ -938,13 +962,14 @@ export default function QuickBuilderPage() {
                     </div>
                   ) : !relatedTypeObj ? (
                     <div className="mt-2 text-xs text-red-600">
-                      Could not find content type with slug <code>{relatedSlug}</code>.
-                      (It must exist before we can populate fields.)
+                      Could not find content type with slug{" "}
+                      <code>{relatedSlug}</code>. (It must exist before we can
+                      populate fields.)
                     </div>
                   ) : !relatedFieldOptions.length ? (
                     <div className="mt-2 text-xs text-gray-500">
-                      No fields found on <code>{relatedSlug}</code> yet.
-                      Add fields to that content type, then come back here.
+                      No fields found on <code>{relatedSlug}</code> yet. Add
+                      fields to that content type, then come back here.
                     </div>
                   ) : (
                     <select
@@ -953,7 +978,9 @@ export default function QuickBuilderPage() {
                       value={inlineAllowedFields}
                       disabled={!inlineEdit.enabled}
                       onChange={(e) => {
-                        const vals = Array.from(e.target.selectedOptions).map((o) => o.value);
+                        const vals = Array.from(e.target.selectedOptions).map(
+                          (o) => o.value
+                        );
                         updateInlineEdit({ fields: vals });
                       }}
                       style={{ minHeight: 140 }}
@@ -967,7 +994,8 @@ export default function QuickBuilderPage() {
                   )}
 
                   <div className="text-[11px] text-gray-500 mt-2">
-                    Stored at <code>field.config.inlineEdit</code> so it can be reused anywhere in ServiceUp.
+                    Stored at <code>field.config.inlineEdit</code> so it can be
+                    reused anywhere in ServiceUp.
                   </div>
                 </div>
               </div>
@@ -1049,9 +1077,7 @@ export default function QuickBuilderPage() {
                 value={cfg.maxSizeMB ?? ""}
                 onChange={(e) =>
                   updateCfg({
-                    maxSizeMB: e.target.value
-                      ? Number(e.target.value)
-                      : undefined,
+                    maxSizeMB: e.target.value ? Number(e.target.value) : undefined,
                   })
                 }
               />
@@ -1073,9 +1099,7 @@ export default function QuickBuilderPage() {
                   onChange={(e) =>
                     updateCfg({
                       minRows:
-                        e.target.value === ""
-                          ? undefined
-                          : Number(e.target.value),
+                        e.target.value === "" ? undefined : Number(e.target.value),
                     })
                   }
                 />
@@ -1090,9 +1114,7 @@ export default function QuickBuilderPage() {
                   onChange={(e) =>
                     updateCfg({
                       maxRows:
-                        e.target.value === ""
-                          ? undefined
-                          : Number(e.target.value),
+                        e.target.value === "" ? undefined : Number(e.target.value),
                     })
                   }
                 />
@@ -1133,8 +1155,8 @@ export default function QuickBuilderPage() {
                   }
                 />
                 <div className="text-[11px] text-gray-500">
-                  1 = no nested repeaters. 2 = allow one repeater inside
-                  another, etc.
+                  1 = no nested repeaters. 2 = allow one repeater inside another,
+                  etc.
                 </div>
               </label>
 
@@ -1145,14 +1167,11 @@ export default function QuickBuilderPage() {
                 <input
                   className="su-input"
                   value={cfg.rowLabelTemplate ?? ""}
-                  onChange={(e) =>
-                    updateCfg({ rowLabelTemplate: e.target.value })
-                  }
+                  onChange={(e) => updateCfg({ rowLabelTemplate: e.target.value })}
                   placeholder='Example: "Item {#}: {name}"'
                 />
                 <div className="text-[11px] text-gray-500">
-                  Supports <code>{"{#}"}</code> and{" "}
-                  <code>{"{field_key}"}</code>.
+                  Supports <code>{"{#}"}</code> and <code>{"{field_key}"}</code>.
                 </div>
               </label>
             </div>
@@ -1189,10 +1208,7 @@ export default function QuickBuilderPage() {
                         });
 
                         return (
-                          <tr
-                            key={i}
-                            className="border-b border-gray-100 align-top"
-                          >
+                          <tr key={i} className="border-b border-gray-100 align-top">
                             <td className="py-1 pr-2">
                               <input
                                 className="su-input su-input-sm"
@@ -1237,8 +1253,7 @@ export default function QuickBuilderPage() {
                               </select>
                               {sf.type === "repeater" && (
                                 <div className="text-[11px] text-gray-500 mt-1">
-                                  Nested repeater allowed up to depth {maxDepth}
-                                  .
+                                  Nested repeater allowed up to depth {maxDepth}.
                                 </div>
                               )}
                             </td>
@@ -1289,8 +1304,7 @@ export default function QuickBuilderPage() {
                                 placeholder='{"accept":"image/*"}'
                               />
                               <div className="text-[11px] text-gray-500 mt-1">
-                                Leave blank for none. (Must be valid JSON to
-                                save.)
+                                Leave blank for none. (Must be valid JSON to save.)
                               </div>
                             </td>
 
@@ -1376,9 +1390,7 @@ export default function QuickBuilderPage() {
                     <select
                       className="su-input"
                       value={r.action || "show"}
-                      onChange={(e) =>
-                        updateRule(i, { action: e.target.value })
-                      }
+                      onChange={(e) => updateRule(i, { action: e.target.value })}
                     >
                       <option value="show">Show targets</option>
                       <option value="hide">Hide targets</option>
