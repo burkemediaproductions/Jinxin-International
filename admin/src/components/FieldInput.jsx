@@ -263,6 +263,117 @@ function normalizeRelKey(k) {
     .replace(/_/g, "-"); // intended_parents -> intended-parents
 }
 
+function isLikelyMobile() {
+  if (typeof window === "undefined") return false;
+  // coarse pointer is a good proxy for touch devices
+  return window.matchMedia?.("(pointer: coarse)").matches;
+}
+
+function validateFileAgainstAccept(file, acceptCombined) {
+  if (!acceptCombined) return true;
+  const accept = String(acceptCombined || "")
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  if (!accept.length) return true;
+
+  return accept.some((p) => {
+    if (p === "*/*") return true;
+    if (p.endsWith("/*")) return file.type.startsWith(p.slice(0, -1));
+    // allow common extension accept (e.g. ".pdf")
+    if (p.startsWith(".")) return file.name.toLowerCase().endsWith(p.toLowerCase());
+    return file.type === p;
+  });
+}
+
+function DropzoneButton({
+  disabled,
+  accept,
+  multiple,
+  onFiles,
+  label = "Click or drag files here",
+}) {
+  const mobile = isLikelyMobile();
+  const [over, setOver] = useState(false);
+  const inputId = useMemo(() => `su-drop-${Math.random().toString(36).slice(2)}`, []);
+
+  if (mobile) {
+    // Mobile: always show normal file picker
+    return (
+      <input
+        id={inputId}
+        type="file"
+        accept={accept}
+        multiple={!!multiple}
+        disabled={disabled}
+        onChange={(e) => onFiles(e.target.files)}
+      />
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+      <input
+        id={inputId}
+        type="file"
+        accept={accept}
+        multiple={!!multiple}
+        disabled={disabled}
+        style={{ display: "none" }}
+        onChange={(e) => onFiles(e.target.files)}
+      />
+
+      <label
+        htmlFor={inputId}
+        onDragEnter={(e) => {
+          e.preventDefault();
+          if (!disabled) setOver(true);
+        }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          if (!disabled) setOver(true);
+        }}
+        onDragLeave={(e) => {
+          e.preventDefault();
+          setOver(false);
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          setOver(false);
+          if (disabled) return;
+          const files = e.dataTransfer?.files;
+          if (files && files.length) onFiles(files);
+        }}
+        style={{
+          cursor: disabled ? "not-allowed" : "pointer",
+          userSelect: "none",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 8,
+          padding: "10px 12px",
+          borderRadius: 12,
+          border: "1px dashed var(--su-border, #e5e7eb)",
+          background: over ? "rgba(59,130,246,0.10)" : "var(--su-surface, #fff)",
+          opacity: disabled ? 0.6 : 1,
+          minWidth: 260,
+          fontSize: 13,
+          fontWeight: 600,
+        }}
+        aria-disabled={disabled ? "true" : "false"}
+      >
+        {label}
+      </label>
+
+      <div style={{ fontSize: 11, opacity: 0.7 }}>
+        {multiple ? "You can drop multiple files." : "Drop a file to upload."}
+      </div>
+    </div>
+  );
+}
+
+
 /** ------------------------------------------------------------------ */
 /** USER RELATIONSHIP FIELD (relation_user)                             */
 /** ------------------------------------------------------------------ */
@@ -912,9 +1023,9 @@ function ImageField({ field, value, onChange, entryContext }) {
 
 /**
  * Generic file upload UI
- * ✅ UPDATED: adds "Preview" modal for PDF/DOC/DOCX
+ *  "Preview" modal for PDF/DOC/DOCX
  */
-function FileField({ field, value, onChange, entryContext, accept }) {
+function FileField({ field, value, onChange, entryContext, accept }) {function FileField({ field, value, onChange, entryContext, accept }) {
   const [busy, setBusy] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewBusy, setPreviewBusy] = useState(false);
@@ -922,6 +1033,10 @@ function FileField({ field, value, onChange, entryContext, accept }) {
   const [previewErr, setPreviewErr] = useState("");
 
   const cfg = getFieldConfig(field);
+
+  // ✅ New knobs
+  const dragDropDesktop = cfg?.dragDropDesktop !== false; // default ON
+  const multipleUploads = !!(cfg?.multipleUploads); // ONLY for files/videos/images (we’ll set in QuickBuilder)
 
   const visibility = fieldVisibility(field);
   const bucket = resolveBucketName(visibility === "private" ? "private" : "public");
@@ -931,62 +1046,83 @@ function FileField({ field, value, onChange, entryContext, accept }) {
   const captionCfg = subCfg(field, "caption", "Caption");
   const creditCfg = subCfg(field, "credit", "Credit");
 
-  async function handleUpload(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const policy = resolveUploadPolicy(cfg || {});
+  const acceptCombined = policy.accept || accept;
+  const maxMB = Number(policy.maxSizeMB) || null;
 
-    const policy = resolveUploadPolicy(cfg || {});
-    const acceptCombined = policy.accept || accept;
-    const maxMB = Number(policy.maxSizeMB) || null;
-
-    const typeOk =
-      !acceptCombined ||
-      acceptCombined.split(",").some((p) => {
-        p = p.trim();
-        if (!p) return true;
-        if (p.endsWith("/*")) return file.type.startsWith(p.slice(0, -1));
-        return file.type === p;
-      });
-
-    if (!typeOk) {
-      alert(`Invalid file type: ${file.type}`);
-      e.target.value = "";
-      return;
+  async function uploadOne(file) {
+    if (!validateFileAgainstAccept(file, acceptCombined)) {
+      alert(`Invalid file type: ${file.type || file.name}`);
+      return null;
     }
     if (maxMB && file.size > maxMB * 1024 * 1024) {
       alert(`File is too large. Max ${maxMB} MB.`);
-      e.target.value = "";
-      return;
+      return null;
     }
 
-    setBusy(true);
-    try {
-      const meta = await uploadToSupabase(file, {
-        bucket,
-        pathPrefix,
-        makePublic: visibility === "public",
-      });
-      onChange({
+    const meta = await uploadToSupabase(file, {
+      bucket,
+      pathPrefix,
+      makePublic: visibility === "public",
+    });
+
+    // For multipleUploads: keep it simple (no title/caption/credit)
+    if (multipleUploads) {
+      return {
         ...meta,
         name: file.name,
         mime: file.type,
         size: file.size,
-        title: value?.title || "",
-        caption: value?.caption || "",
-        credit: value?.credit || "",
-      });
+      };
+    }
+
+    // Single: preserve your subfields
+    return {
+      ...meta,
+      name: file.name,
+      mime: file.type,
+      size: file.size,
+      title: value?.title || "",
+      caption: value?.caption || "",
+      credit: value?.credit || "",
+    };
+  }
+
+  async function handleFiles(fileList) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+
+    setBusy(true);
+    try {
+      if (!multipleUploads) {
+        const first = files[0];
+        const uploaded = await uploadOne(first);
+        if (uploaded) onChange(uploaded);
+        return;
+      }
+
+      // multipleUploads = true
+      const current = Array.isArray(value) ? value : [];
+      const uploadedAll = [];
+
+      // sequential keeps it safe for rate limits; switch to Promise.all if you want
+      for (const f of files) {
+        const up = await uploadOne(f);
+        if (up) uploadedAll.push(up);
+      }
+
+      if (uploadedAll.length) onChange([...(current || []), ...uploadedAll]);
     } catch (err) {
       alert(`Upload failed: ${err.message}`);
     } finally {
       setBusy(false);
-      e.target.value = "";
     }
   }
 
-  async function copySignedLink() {
-    if (!value?.bucket || !value?.path) return;
+  async function copySignedLink(v) {
+    if (!v?.bucket || !v?.path) return;
     try {
-      const url = await getSignedUrl(value.bucket, value.path, 3600);
+      const url = await getSignedUrl(v.bucket, v.path, 3600);
       await navigator.clipboard.writeText(url);
       alert("Signed URL copied (1h).");
     } catch {
@@ -994,14 +1130,11 @@ function FileField({ field, value, onChange, entryContext, accept }) {
     }
   }
 
-  // ✅ NEW: open inline preview
-  async function openPreview() {
+  async function openPreview(v) {
     setPreviewErr("");
     setPreviewOpen(true);
 
-    const v = value || {};
     const kind = getPreviewTypeFromFile(v);
-
     if (!v?.bucket || !v?.path) {
       setPreviewErr("No file found to preview.");
       return;
@@ -1009,23 +1142,15 @@ function FileField({ field, value, onChange, entryContext, accept }) {
 
     setPreviewBusy(true);
     try {
-      // Decide what URL the iframe can load:
-      // - public: use publicUrl
-      // - private: generate signed URL
       let url = v.publicUrl;
-      if (!url) {
-        url = await getSignedUrl(v.bucket, v.path, 60 * 60); // 1 hour
-      }
+      if (!url) url = await getSignedUrl(v.bucket, v.path, 60 * 60);
 
       if (!url) throw new Error("Could not generate a preview URL.");
 
       if (kind === "pdf") {
         setPreviewUrl(url);
       } else if (kind === "docx" || kind === "doc") {
-        // Office online viewer embed
-        const office = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(
-          url
-        )}`;
+        const office = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
         setPreviewUrl(office);
       } else {
         setPreviewErr("Preview not available for this file type.");
@@ -1039,117 +1164,225 @@ function FileField({ field, value, onChange, entryContext, accept }) {
     }
   }
 
-  const canPreview = (() => {
-    if (!value?.bucket || !value?.path) return false;
-    const kind = getPreviewTypeFromFile(value);
-    return kind === "pdf" || kind === "docx" || kind === "doc";
-  })();
+  const renderSingle = () => {
+    const canPreview = (() => {
+      if (!value?.bucket || !value?.path) return false;
+      const kind = getPreviewTypeFromFile(value);
+      return kind === "pdf" || kind === "docx" || kind === "doc";
+    })();
 
-  return (
-    <div style={{ display: "grid", gap: 6 }}>
-      <input placeholder="File name" value={value?.name || ""} readOnly />
+    return (
+      <div style={{ display: "grid", gap: 6 }}>
+        <input placeholder="File name" value={value?.name || ""} readOnly />
 
-      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-        <input
-          type="file"
-          accept={accept}
-          onChange={handleUpload}
-          disabled={busy}
-        />
-
-        {canPreview && (
-          <button type="button" className="su-btn primary" onClick={openPreview}>
-            Preview
-          </button>
-        )}
-
-        {visibility === "private" && value?.path && (
-          <button type="button" onClick={copySignedLink} disabled={busy}>
-            Copy signed URL
-          </button>
-        )}
-
-        {visibility === "public" && value?.publicUrl && (
-          <a
-            className="su-btn"
-            href={value.publicUrl}
-            target="_blank"
-            rel="noreferrer"
-            style={{ textDecoration: "none" }}
-          >
-            Open in new tab
-          </a>
-        )}
-      </div>
-
-      {titleCfg.show && (
-        <input
-          placeholder={titleCfg.label}
-          value={value?.title || ""}
-          onChange={(e) => onChange({ ...(value || {}), title: e.target.value })}
-        />
-      )}
-      {captionCfg.show && (
-        <input
-          placeholder={captionCfg.label}
-          value={value?.caption || ""}
-          onChange={(e) =>
-            onChange({ ...(value || {}), caption: e.target.value })
-          }
-        />
-      )}
-      {creditCfg.show && (
-        <input
-          placeholder={creditCfg.label}
-          value={value?.credit || ""}
-          onChange={(e) =>
-            onChange({ ...(value || {}), credit: e.target.value })
-          }
-        />
-      )}
-
-      {visibility === "public" && value?.publicUrl && (
-        <small>Public URL: {value.publicUrl}</small>
-      )}
-
-      {/* ✅ Preview Modal */}
-      <Modal
-        open={previewOpen}
-        onClose={() => {
-          setPreviewOpen(false);
-          setPreviewUrl("");
-          setPreviewErr("");
-        }}
-        title={value?.name ? `Preview: ${value.name}` : "Preview"}
-      >
-        {previewBusy ? (
-          <div style={{ padding: 16, fontSize: 13, opacity: 0.75 }}>
-            Loading preview…
-          </div>
-        ) : previewErr ? (
-          <div style={{ padding: 16, fontSize: 13, color: "#b91c1c" }}>
-            {previewErr}
-          </div>
-        ) : previewUrl ? (
-          <iframe
-            title="Document preview"
-            src={previewUrl}
-            style={{
-              width: "100%",
-              height: "100%",
-              border: "none",
-              background: "#fff",
-            }}
+        {dragDropDesktop ? (
+          <DropzoneButton
+            disabled={busy}
+            accept={acceptCombined}
+            multiple={false}
+            onFiles={handleFiles}
+            label="Click or drag a file here"
           />
         ) : (
-          <div style={{ padding: 16, fontSize: 13, opacity: 0.75 }}>
-            No preview available.
-          </div>
+          <input
+            type="file"
+            accept={acceptCombined}
+            onChange={(e) => handleFiles(e.target.files)}
+            disabled={busy}
+          />
         )}
-      </Modal>
-    </div>
-  );
+
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          {canPreview && (
+            <button type="button" className="su-btn primary" onClick={() => openPreview(value)}>
+              Preview
+            </button>
+          )}
+
+          {visibility === "private" && value?.path && (
+            <button type="button" onClick={() => copySignedLink(value)} disabled={busy}>
+              Copy signed URL
+            </button>
+          )}
+
+          {visibility === "public" && value?.publicUrl && (
+            <a
+              className="su-btn"
+              href={value.publicUrl}
+              target="_blank"
+              rel="noreferrer"
+              style={{ textDecoration: "none" }}
+            >
+              Open in new tab
+            </a>
+          )}
+        </div>
+
+        {titleCfg.show && (
+          <input
+            placeholder={titleCfg.label}
+            value={value?.title || ""}
+            onChange={(e) => onChange({ ...(value || {}), title: e.target.value })}
+          />
+        )}
+        {captionCfg.show && (
+          <input
+            placeholder={captionCfg.label}
+            value={value?.caption || ""}
+            onChange={(e) => onChange({ ...(value || {}), caption: e.target.value })}
+          />
+        )}
+        {creditCfg.show && (
+          <input
+            placeholder={creditCfg.label}
+            value={value?.credit || ""}
+            onChange={(e) => onChange({ ...(value || {}), credit: e.target.value })}
+          />
+        )}
+
+        {visibility === "public" && value?.publicUrl && <small>Public URL: {value.publicUrl}</small>}
+
+        <Modal
+          open={previewOpen}
+          onClose={() => {
+            setPreviewOpen(false);
+            setPreviewUrl("");
+            setPreviewErr("");
+          }}
+          title={value?.name ? `Preview: ${value.name}` : "Preview"}
+        >
+          {previewBusy ? (
+            <div style={{ padding: 16, fontSize: 13, opacity: 0.75 }}>Loading preview…</div>
+          ) : previewErr ? (
+            <div style={{ padding: 16, fontSize: 13, color: "#b91c1c" }}>{previewErr}</div>
+          ) : previewUrl ? (
+            <iframe title="Document preview" src={previewUrl} style={{ width: "100%", height: "100%", border: "none" }} />
+          ) : (
+            <div style={{ padding: 16, fontSize: 13, opacity: 0.75 }}>No preview available.</div>
+          )}
+        </Modal>
+      </div>
+    );
+  };
+
+  const renderMultiple = () => {
+    const list = Array.isArray(value) ? value : [];
+
+    return (
+      <div style={{ display: "grid", gap: 10 }}>
+        {dragDropDesktop ? (
+          <DropzoneButton
+            disabled={busy}
+            accept={acceptCombined}
+            multiple={true}
+            onFiles={handleFiles}
+            label="Click or drag files here"
+          />
+        ) : (
+          <input
+            type="file"
+            accept={acceptCombined}
+            multiple
+            onChange={(e) => handleFiles(e.target.files)}
+            disabled={busy}
+          />
+        )}
+
+        {list.length ? (
+          <div style={{ display: "grid", gap: 8 }}>
+            {list.map((f, idx) => {
+              const canPreview = (() => {
+                if (!f?.bucket || !f?.path) return false;
+                const kind = getPreviewTypeFromFile(f);
+                return kind === "pdf" || kind === "docx" || kind === "doc";
+              })();
+
+              return (
+                <div
+                  key={`${f?.path || f?.name || "file"}-${idx}`}
+                  style={{
+                    border: "1px solid var(--su-border, #e5e7eb)",
+                    borderRadius: 12,
+                    padding: 10,
+                    background: "var(--su-surface, #fff)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {f?.name || f?.path || "(file)"}
+                    </div>
+                    <div style={{ fontSize: 11, opacity: 0.7 }}>
+                      {f?.mime ? f.mime : ""} {f?.size ? `· ${(f.size / 1024 / 1024).toFixed(2)} MB` : ""}
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    {canPreview && (
+                      <button type="button" className="su-btn" onClick={() => openPreview(f)}>
+                        Preview
+                      </button>
+                    )}
+                    {visibility === "private" && f?.path && (
+                      <button type="button" className="su-btn" onClick={() => copySignedLink(f)} disabled={busy}>
+                        Copy link
+                      </button>
+                    )}
+                    {visibility === "public" && f?.publicUrl && (
+                      <a className="su-btn" href={f.publicUrl} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+                        Open
+                      </a>
+                    )}
+                    <button
+                      type="button"
+                      className="su-btn"
+                      onClick={() => {
+                        const next = list.filter((_, i) => i !== idx);
+                        onChange(next);
+                      }}
+                      disabled={busy}
+                      style={{ borderColor: "#fecaca", background: "#fef2f2", color: "#b91c1c" }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div style={{ fontSize: 12, opacity: 0.7 }}>No files uploaded yet.</div>
+        )}
+
+        <Modal
+          open={previewOpen}
+          onClose={() => {
+            setPreviewOpen(false);
+            setPreviewUrl("");
+            setPreviewErr("");
+          }}
+          title="Preview"
+        >
+          {previewBusy ? (
+            <div style={{ padding: 16, fontSize: 13, opacity: 0.75 }}>Loading preview…</div>
+          ) : previewErr ? (
+            <div style={{ padding: 16, fontSize: 13, color: "#b91c1c" }}>{previewErr}</div>
+          ) : previewUrl ? (
+            <iframe title="Document preview" src={previewUrl} style={{ width: "100%", height: "100%", border: "none" }} />
+          ) : (
+            <div style={{ padding: 16, fontSize: 13, opacity: 0.75 }}>No preview available.</div>
+          )}
+        </Modal>
+      </div>
+    );
+  };
+
+  return multipleUploads ? renderMultiple() : renderSingle();
 }
+
 
 function coerceArray(v) {
   return Array.isArray(v) ? v : [];
