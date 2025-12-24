@@ -1853,9 +1853,10 @@ function InlineRelatedEditorModal({
   const showCore = inlineCfg?.showCore === true;
 
   const fields = Array.isArray(ct?.fields) ? ct.fields : [];
-  const allowedFields = allowed.length
-    ? fields.filter((f) => allowed.includes(f.field_key))
+    const allowedFields = allowed.length
+    ? fields.filter((f) => allowed.includes(f.field_key || f.key))
     : fields;
+
 
   async function save() {
     if (!ct || !entry) return;
