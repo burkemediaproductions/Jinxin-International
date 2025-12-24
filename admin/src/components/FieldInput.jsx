@@ -1811,7 +1811,7 @@ function InlineRelatedEditorModal({
 
       try {
         // Load content type by slug
-        const ctRes = await api.get(`/api/content-types/slug/${relSlug}`);
+        const ctRes = await api.get(`/api/content/${relSlug}`);
         if (!alive) return;
         setCt(ctRes);
 
