@@ -1810,13 +1810,19 @@ function InlineRelatedEditorModal({
       setErr("");
 
       try {
-        // Load content type by slug
-        const ctRes = await api.get(`/api/content-types/slug/${relSlug}`);
+               // ✅ Load content type by slug (robust: uses /api/content-types list + id fetch)
+        const ctRes = await fetchContentTypeBySlug(relSlug);
         if (!alive) return;
+
+        if (!ctRes) {
+          throw new Error(`Content type not found for slug: ${relSlug}`);
+        }
+
         setCt(ctRes);
 
         // Load entry
         const eRes = await api.get(`/api/entries/${relSlug}/${relId}`);
+
         if (!alive) return;
 
         setEntry(eRes);
