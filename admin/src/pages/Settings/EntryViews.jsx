@@ -14,6 +14,7 @@ import { api } from "../../lib/api";
  *  - label: human name
  *  - roles: roles that can use this view (multi-select)
  *  - default_roles: roles for which this view is default
+ *  - config.core: core editor behavior (title label, derived title template, hide title/slug/status/preview)
  *  - sections: array of widgets { id, title, description, layout, fields }
  *
  * We now allow BOTH built-in fields (title, slug, status, created_at,
@@ -39,6 +40,25 @@ const BUILTIN_FIELDS = [
   { key: "updated_at", label: "Updated" },
 ];
 
+const EMPTY_CORE = {
+  titleLabel: "Title",
+  slugLabel: "Slug",
+  statusLabel: "Status",
+
+  // manual | template
+  titleMode: "manual",
+  titleTemplate: "",
+
+  // hide core fields/panels in THIS VIEW (role-based because views are role-based)
+  hideTitle: false,
+  hideSlug: false,
+  hideStatus: false,
+  hidePreview: false,
+
+  // if true, and slug is empty, Editor can auto-fill slug from derived/manual title
+  autoSlugFromTitleIfEmpty: true,
+};
+
 export default function EntryViews() {
   const params = useParams();
   const navigate = useNavigate();
@@ -62,6 +82,10 @@ export default function EntryViews() {
   const [assignedRoles, setAssignedRoles] = useState([]);
   const [defaultRoles, setDefaultRoles] = useState([]);
   const [adminOnly, setAdminOnly] = useState(false);
+
+  // ✅ NEW: Core editor behavior (stored in view.config.core)
+  const [core, setCore] = useState(EMPTY_CORE);
+
   const [sections, setSections] = useState([]); // widgets
   const [selectedSectionIndex, setSelectedSectionIndex] = useState(0);
 
@@ -229,6 +253,7 @@ export default function EntryViews() {
           setAssignedRoles(["ADMIN"]);
           setDefaultRoles([]);
           setAdminOnly(false);
+          setCore(EMPTY_CORE);
           setSections([]);
           setSelectedSectionIndex(0);
           setDirty(false);
@@ -268,6 +293,13 @@ export default function EntryViews() {
 
     const nonAdmin = cfgRoles.filter((r) => r.toUpperCase() !== "ADMIN");
     setAdminOnly(nonAdmin.length === 0);
+
+    // ✅ Core config
+    const loadedCore =
+      view?.config?.core && typeof view.config.core === "object"
+        ? { ...EMPTY_CORE, ...view.config.core }
+        : EMPTY_CORE;
+    setCore(loadedCore);
 
     const secs = Array.isArray(view?.config?.sections)
       ? view.config.sections.map((s, idx) => ({
@@ -474,6 +506,7 @@ export default function EntryViews() {
     setAssignedRoles(["ADMIN"]);
     setDefaultRoles(["ADMIN"]);
     setAdminOnly(false);
+    setCore(EMPTY_CORE);
     setSections([
       {
         id: "widget-1",
@@ -537,11 +570,13 @@ export default function EntryViews() {
       return;
     }
 
+    // ✅ NEW: persist core config inside view config
     const payload = {
       slug,
       label: currentLabel,
       roles: rolesArray,
       default_roles: defaults,
+      core: core || EMPTY_CORE,
       sections: payloadSections,
     };
 
@@ -581,6 +616,12 @@ export default function EntryViews() {
           (r) => r.toUpperCase() !== "ADMIN"
         );
         setAdminOnly(nonAdminAfter.length === 0);
+
+        const loadedCore =
+          newly?.config?.core && typeof newly.config.core === "object"
+            ? { ...EMPTY_CORE, ...newly.config.core }
+            : EMPTY_CORE;
+        setCore(loadedCore);
 
         const secs = Array.isArray(newly?.config?.sections)
           ? newly.config.sections.map((s, idx) => ({
@@ -624,6 +665,7 @@ export default function EntryViews() {
       setAssignedRoles(["ADMIN"]);
       setDefaultRoles([]);
       setAdminOnly(false);
+      setCore(EMPTY_CORE);
       setSections([]);
       setSelectedSectionIndex(0);
       setDirty(false);
@@ -923,6 +965,126 @@ export default function EntryViews() {
                   }}
                 />
               </div>
+
+              {/* ✅ NEW: Core field behavior */}
+              <div className="su-card" style={{ background: "var(--su-surface)" }}>
+                <div className="su-card-body su-space-y-sm">
+                  <div className="su-text-sm su-font-semibold">
+                    Core fields &amp; behavior
+                  </div>
+
+                  <div className="su-grid md:grid-cols-2 gap-sm">
+                    <div>
+                      <label className="su-form-label">Title label</label>
+                      <input
+                        className="su-input"
+                        value={core.titleLabel || "Title"}
+                        onChange={(e) => {
+                          setCore((prev) => ({ ...prev, titleLabel: e.target.value }));
+                          setDirty(true);
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="su-form-label">Title mode</label>
+                      <select
+                        className="su-input"
+                        value={core.titleMode || "manual"}
+                        onChange={(e) => {
+                          setCore((prev) => ({ ...prev, titleMode: e.target.value }));
+                          setDirty(true);
+                        }}
+                      >
+                        <option value="manual">Manual</option>
+                        <option value="template">Derived (template)</option>
+                      </select>
+                      <div className="su-text-xs su-text-muted">
+                        Use “Derived” for surrogates/intended parents.
+                      </div>
+                    </div>
+
+                    <div className="md:col-span-2">
+                      <label className="su-form-label">Title template</label>
+                      <input
+                        className="su-input"
+                        placeholder='Example: {name.first} {name.last}'
+                        value={core.titleTemplate || ""}
+                        onChange={(e) => {
+                          setCore((prev) => ({ ...prev, titleTemplate: e.target.value }));
+                          setDirty(true);
+                        }}
+                        disabled={(core.titleMode || "manual") !== "template"}
+                      />
+                      <div className="su-text-xs su-text-muted">
+                        Tokens support nested paths: <code>{"{name.first}"}</code>,{" "}
+                        <code>{"{parent_one.first}"}</code>, etc.
+                      </div>
+                    </div>
+
+                    <label className="su-chip su-items-center su-gap-xs">
+                      <input
+                        type="checkbox"
+                        checked={!!core.hideTitle}
+                        onChange={(e) => {
+                          setCore((prev) => ({ ...prev, hideTitle: e.target.checked }));
+                          setDirty(true);
+                        }}
+                      />
+                      Hide Title field
+                    </label>
+
+                    <label className="su-chip su-items-center su-gap-xs">
+                      <input
+                        type="checkbox"
+                        checked={!!core.hideSlug}
+                        onChange={(e) => {
+                          setCore((prev) => ({ ...prev, hideSlug: e.target.checked }));
+                          setDirty(true);
+                        }}
+                      />
+                      Hide Slug field
+                    </label>
+
+                    <label className="su-chip su-items-center su-gap-xs">
+                      <input
+                        type="checkbox"
+                        checked={!!core.hideStatus}
+                        onChange={(e) => {
+                          setCore((prev) => ({ ...prev, hideStatus: e.target.checked }));
+                          setDirty(true);
+                        }}
+                      />
+                      Hide Status field
+                    </label>
+
+                    <label className="su-chip su-items-center su-gap-xs">
+                      <input
+                        type="checkbox"
+                        checked={!!core.hidePreview}
+                        onChange={(e) => {
+                          setCore((prev) => ({ ...prev, hidePreview: e.target.checked }));
+                          setDirty(true);
+                        }}
+                      />
+                      Hide Preview panel
+                    </label>
+
+                    <label className="su-chip su-items-center su-gap-xs md:col-span-2">
+                      <input
+                        type="checkbox"
+                        checked={core.autoSlugFromTitleIfEmpty !== false}
+                        onChange={(e) => {
+                          setCore((prev) => ({ ...prev, autoSlugFromTitleIfEmpty: e.target.checked }));
+                          setDirty(true);
+                        }}
+                      />
+                      Auto-slug from title when slug is empty
+                    </label>
+                  </div>
+                </div>
+              </div>
+
               <div>
                 <label className="su-form-label">Assigned roles</label>
                 <div className="su-flex su-flex-wrap su-gap-sm">
