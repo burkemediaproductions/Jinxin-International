@@ -1082,6 +1082,26 @@ export default function QuickBuilderPage() {
                 }
               />
             </label>
+			<div className="md:col-span-2 grid gap-2">
+				<label className="flex items-center gap-2 text-xs">
+				<input
+				type="checkbox"
+				checked={cfg.dragDropDesktop !== false}
+				onChange={(e) => updateCfg({ dragDropDesktop: e.target.checked })}
+				/>
+				<span>Enable drag & drop on desktop</span>
+			</label>
+
+			<label className="flex items-center gap-2 text-xs">
+				<input
+				type="checkbox"
+				checked={!!cfg.multipleUploads}
+				onChange={(e) => updateCfg({ multipleUploads: e.target.checked })}
+				/>
+				<span>Allow multiple uploads (disables title/caption/credit subfields)</span>
+			</label>
+			</div>
+
           </div>
         )}
 
