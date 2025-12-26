@@ -42,6 +42,11 @@ export function SettingsProvider({ children }) {
             EDITOR: false,
             ADMIN: false,
           },
+          hideEditorPreviewByRole: {
+            VIEWER: false,
+            EDITOR: false,
+            ADMIN: false,
+          },
         };
 
         setSettings(fallback);
