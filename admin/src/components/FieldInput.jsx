@@ -1,6 +1,7 @@
 // admin/src/components/FieldInput.jsx
 import React, { useState, useMemo, useEffect } from "react";
 import RichTextEditor from "./RichTextEditor";
+import { DateTime } from "luxon";
 import {
   combineDateAndTimeToUTC,
   fmtDateISO,
@@ -143,6 +144,120 @@ function resolveUploadPolicy(options) {
   return { accept: acceptAttr || simpleAccept, maxSizeMB: simpleMax, rules };
 }
 
+
+function isLikelyMobile() {
+  if (typeof window === "undefined") return false;
+  // coarse pointer is a good proxy for touch devices
+  return window.matchMedia?.("(pointer: coarse)").matches;
+}
+
+function validateFileAgainstAccept(file, acceptCombined) {
+  if (!acceptCombined) return true;
+  const accept = String(acceptCombined || "")
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  if (!accept.length) return true;
+
+  return accept.some((p) => {
+    if (p === "*/*") return true;
+    if (p.endsWith("/*")) return file.type.startsWith(p.slice(0, -1));
+    // allow common extension accept (e.g. ".pdf")
+    if (p.startsWith(".")) return file.name.toLowerCase().endsWith(p.toLowerCase());
+    return file.type === p;
+  });
+}
+
+function DropzoneButton({
+  disabled,
+  accept,
+  multiple,
+  onFiles,
+  label = "Click or drag files here",
+}) {
+  const mobile = isLikelyMobile();
+  const [over, setOver] = useState(false);
+  const inputId = useMemo(() => `su-drop-${Math.random().toString(36).slice(2)}`, []);
+
+  if (mobile) {
+    // Mobile: always show normal file picker
+    return (
+      <input
+        id={inputId}
+        type="file"
+        accept={accept}
+        multiple={!!multiple}
+        disabled={disabled}
+        onChange={(e) => onFiles(e.target.files)}
+      />
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+      <input
+        id={inputId}
+        type="file"
+        accept={accept}
+        multiple={!!multiple}
+        disabled={disabled}
+        style={{ display: "none" }}
+        onChange={(e) => onFiles(e.target.files)}
+      />
+
+      <label
+        htmlFor={inputId}
+        onDragEnter={(e) => {
+          e.preventDefault();
+          if (!disabled) setOver(true);
+        }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          if (!disabled) setOver(true);
+        }}
+        onDragLeave={(e) => {
+          e.preventDefault();
+          setOver(false);
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          setOver(false);
+          if (disabled) return;
+          const files = e.dataTransfer?.files;
+          if (files && files.length) onFiles(files);
+        }}
+        style={{
+          cursor: disabled ? "not-allowed" : "pointer",
+          userSelect: "none",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 8,
+          padding: "10px 12px",
+          borderRadius: 12,
+          border: "1px dashed var(--su-border, #e5e7eb)",
+          background: over ? "rgba(59,130,246,0.10)" : "var(--su-surface, #fff)",
+          opacity: disabled ? 0.6 : 1,
+          minWidth: 260,
+          fontSize: 13,
+          fontWeight: 600,
+        }}
+        aria-disabled={disabled ? "true" : "false"}
+      >
+        {label}
+      </label>
+
+      <div style={{ fontSize: 11, opacity: 0.7 }}>
+        {multiple ? "You can drop multiple files." : "Drop a file to upload."}
+      </div>
+    </div>
+  );
+}
+
+
+
+
 /**
  * IMPORTANT:
  * Your platform now stores "field config" in field.config (DB-backed),
@@ -263,115 +378,6 @@ function normalizeRelKey(k) {
     .replace(/_/g, "-"); // intended_parents -> intended-parents
 }
 
-function isLikelyMobile() {
-  if (typeof window === "undefined") return false;
-  // coarse pointer is a good proxy for touch devices
-  return window.matchMedia?.("(pointer: coarse)").matches;
-}
-
-function validateFileAgainstAccept(file, acceptCombined) {
-  if (!acceptCombined) return true;
-  const accept = String(acceptCombined || "")
-    .split(",")
-    .map((p) => p.trim())
-    .filter(Boolean);
-
-  if (!accept.length) return true;
-
-  return accept.some((p) => {
-    if (p === "*/*") return true;
-    if (p.endsWith("/*")) return file.type.startsWith(p.slice(0, -1));
-    // allow common extension accept (e.g. ".pdf")
-    if (p.startsWith(".")) return file.name.toLowerCase().endsWith(p.toLowerCase());
-    return file.type === p;
-  });
-}
-
-function DropzoneButton({
-  disabled,
-  accept,
-  multiple,
-  onFiles,
-  label = "Click or drag files here",
-}) {
-  const mobile = isLikelyMobile();
-  const [over, setOver] = useState(false);
-  const inputId = useMemo(() => `su-drop-${Math.random().toString(36).slice(2)}`, []);
-
-  if (mobile) {
-    // Mobile: always show normal file picker
-    return (
-      <input
-        id={inputId}
-        type="file"
-        accept={accept}
-        multiple={!!multiple}
-        disabled={disabled}
-        onChange={(e) => onFiles(e.target.files)}
-      />
-    );
-  }
-
-  return (
-    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-      <input
-        id={inputId}
-        type="file"
-        accept={accept}
-        multiple={!!multiple}
-        disabled={disabled}
-        style={{ display: "none" }}
-        onChange={(e) => onFiles(e.target.files)}
-      />
-
-      <label
-        htmlFor={inputId}
-        onDragEnter={(e) => {
-          e.preventDefault();
-          if (!disabled) setOver(true);
-        }}
-        onDragOver={(e) => {
-          e.preventDefault();
-          if (!disabled) setOver(true);
-        }}
-        onDragLeave={(e) => {
-          e.preventDefault();
-          setOver(false);
-        }}
-        onDrop={(e) => {
-          e.preventDefault();
-          setOver(false);
-          if (disabled) return;
-          const files = e.dataTransfer?.files;
-          if (files && files.length) onFiles(files);
-        }}
-        style={{
-          cursor: disabled ? "not-allowed" : "pointer",
-          userSelect: "none",
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 8,
-          padding: "10px 12px",
-          borderRadius: 12,
-          border: "1px dashed var(--su-border, #e5e7eb)",
-          background: over ? "rgba(59,130,246,0.10)" : "var(--su-surface, #fff)",
-          opacity: disabled ? 0.6 : 1,
-          minWidth: 260,
-          fontSize: 13,
-          fontWeight: 600,
-        }}
-        aria-disabled={disabled ? "true" : "false"}
-      >
-        {label}
-      </label>
-
-      <div style={{ fontSize: 11, opacity: 0.7 }}>
-        {multiple ? "You can drop multiple files." : "Drop a file to upload."}
-      </div>
-    </div>
-  );
-}
 
 
 /** ------------------------------------------------------------------ */
@@ -1025,7 +1031,7 @@ function ImageField({ field, value, onChange, entryContext }) {
  * Generic file upload UI
  *  "Preview" modal for PDF/DOC/DOCX
  */
-function FileField({ field, value, onChange, entryContext, accept }) {function FileField({ field, value, onChange, entryContext, accept }) {
+function FileField({ field, value, onChange, entryContext, accept }) {
   const [busy, setBusy] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewBusy, setPreviewBusy] = useState(false);
@@ -1382,7 +1388,6 @@ function FileField({ field, value, onChange, entryContext, accept }) {function F
 
   return multipleUploads ? renderMultiple() : renderSingle();
 }
-
 
 function coerceArray(v) {
   return Array.isArray(v) ? v : [];
