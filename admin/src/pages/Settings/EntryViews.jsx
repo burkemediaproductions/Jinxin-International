@@ -531,7 +531,7 @@ export default function EntryViews() {
       setError("Label is required");
       return;
     }
-    const slug = slugify(currentLabel);
+    const slug = slugify(activeViewSlug || currentLabel);
 
     const dup = views.find(
       (v) =>
@@ -570,15 +570,18 @@ export default function EntryViews() {
       return;
     }
 
-    // ✅ NEW: persist core config inside view config
-    const payload = {
-      slug,
-      label: currentLabel,
-      roles: rolesArray,
-      default_roles: defaults,
-      core: core || EMPTY_CORE,
-      sections: payloadSections,
+    // ✅ Persist everything inside `config` (matches what we read as `view.config.*`)
+   const payload = {
+     slug,
+     label: currentLabel,
+     config: {
+       roles: rolesArray,
+       default_roles: defaults,
+       core: core || EMPTY_CORE,
+       sections: payloadSections,
+      },
     };
+
 
     try {
       setLoading(true);
