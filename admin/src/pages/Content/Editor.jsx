@@ -12,6 +12,39 @@ function slugify(value) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
 }
+function getRoleFromToken() {
+  try {
+    const token =
+      window.localStorage.getItem("token") ||
+      window.localStorage.getItem("serviceup_token") ||
+      window.localStorage.getItem("jwt") ||
+      window.localStorage.getItem("authToken");
+
+    if (!token) return null;
+
+    const parts = String(token).split(".");
+    if (parts.length < 2) return null;
+
+    const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const json = decodeURIComponent(
+      atob(b64)
+        .split("")
+        .map((c) => `%${("00" + c.charCodeAt(0).toString(16)).slice(-2)}`)
+        .join("")
+    );
+
+    const payload = JSON.parse(json);
+    return (
+      payload?.role ||
+      payload?.user?.role ||
+      payload?.claims?.role ||
+      payload?.app_metadata?.role ||
+      null
+    );
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Build a layout from the editor view config + content type fields.
@@ -225,9 +258,11 @@ export default function Editor() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // NOTE: you likely already have real role logic elsewhere;
-  // this file previously hard-coded ADMIN. Keeping your existing behavior.
-  const roleUpper = "ADMIN".toUpperCase();
+const roleUpper = useMemo(() => {
+  const r = getRoleFromToken();
+  return String(r || "ADMIN").toUpperCase();
+}, []);
+
   const isNew = !entryId || entryId === "new";
 
   const [loadingEntry, setLoadingEntry] = useState(!isNew);
