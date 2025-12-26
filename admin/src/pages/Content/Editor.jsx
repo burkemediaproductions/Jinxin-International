@@ -145,11 +145,88 @@ function getDynamicChoiceSourceSlug(def) {
   return null;
 }
 
+// ----------------------------
+// ✅ Derived title helpers
+// ----------------------------
+function getByPath(obj, path) {
+  if (!path) return undefined;
+  const parts = String(path)
+    .split(".")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  let cur = obj;
+  for (const p of parts) {
+    if (cur == null) return undefined;
+    cur = cur[p];
+  }
+  return cur;
+}
+
+function asPrettyInline(value) {
+  if (value == null) return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean")
+    return String(value);
+
+  // name field object common shape
+  if (typeof value === "object" && !Array.isArray(value)) {
+    const first = value.first || "";
+    const last = value.last || "";
+    const middle = value.middle || "";
+    const title = value.title || "";
+    const suffix = value.suffix || "";
+
+    const looksLikeName =
+      "first" in value || "last" in value || "middle" in value || "title" in value || "suffix" in value;
+
+    if (looksLikeName) {
+      const bits = [];
+      if (title) bits.push(String(title));
+      if (first) bits.push(String(first));
+      if (middle) bits.push(String(middle));
+      if (last) bits.push(String(last));
+      let out = bits.join(" ").trim();
+      if (suffix) out = `${out} ${suffix}`.trim();
+      return out;
+    }
+
+    // fallback
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(asPrettyInline).filter(Boolean).join(", ");
+  }
+
+  return String(value);
+}
+
+function deriveTitleFromTemplate(template, data) {
+  const tpl = String(template || "");
+  if (!tpl.trim()) return "";
+
+  // replace {path.to.field} tokens
+  const out = tpl.replace(/\{([^}]+)\}/g, (_, tokenRaw) => {
+    const token = String(tokenRaw || "").trim();
+    if (!token) return "";
+    const val = getByPath(data, token);
+    return asPrettyInline(val);
+  });
+
+  return out.replace(/\s+/g, " ").trim();
+}
+
 export default function Editor() {
   const { typeSlug, entryId } = useParams();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
+  // NOTE: you likely already have real role logic elsewhere;
+  // this file previously hard-coded ADMIN. Keeping your existing behavior.
   const roleUpper = "ADMIN".toUpperCase();
   const isNew = !entryId || entryId === "new";
 
@@ -182,6 +259,25 @@ export default function Editor() {
   const [activeViewLabel, setActiveViewLabel] = useState("");
 
   const overallLoading = loadingEntry || loadingType;
+
+  // ✅ core config (from EntryViews builder)
+  const coreCfg = useMemo(() => {
+    const c = editorViewConfig?.core && typeof editorViewConfig.core === "object"
+      ? editorViewConfig.core
+      : {};
+    return {
+      titleLabel: c.titleLabel || "Title",
+      slugLabel: c.slugLabel || "Slug",
+      statusLabel: c.statusLabel || "Status",
+      titleMode: c.titleMode || "manual",
+      titleTemplate: c.titleTemplate || "",
+      hideTitle: !!c.hideTitle,
+      hideSlug: !!c.hideSlug,
+      hideStatus: !!c.hideStatus,
+      hidePreview: !!c.hidePreview,
+      autoSlugFromTitleIfEmpty: c.autoSlugFromTitleIfEmpty !== false,
+    };
+  }, [editorViewConfig]);
 
   // ---------------------------------------------------------------------------
   // Load content type (with fields) + editor views for the current role
@@ -498,6 +594,27 @@ export default function Editor() {
   }, [isNew, typeSlug, entryId]);
 
   // ---------------------------------------------------------------------------
+  // ✅ Derive Title live from template (if enabled in view)
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (!coreCfg) return;
+    if ((coreCfg.titleMode || "manual") !== "template") return;
+
+    const derived = deriveTitleFromTemplate(coreCfg.titleTemplate || "", data || {});
+    if (!derived) return;
+
+    // Always keep title in sync when template mode is on.
+    // If you want “only set if empty”, tell me and we can add a toggle.
+    setTitle(derived);
+
+    // If slug is empty and view says auto-slug, sync it too
+    if (coreCfg.autoSlugFromTitleIfEmpty && !String(slug || "").trim()) {
+      setSlug(slugify(derived));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coreCfg.titleMode, coreCfg.titleTemplate, data]);
+
+  // ---------------------------------------------------------------------------
   // Save / Delete
   // ---------------------------------------------------------------------------
   async function handleSave(e) {
@@ -505,12 +622,18 @@ export default function Editor() {
     setError("");
     setSaveMessage("");
 
-    if (!title.trim()) {
+    // Title may be hidden, but still required: ensure it exists (derived or manual)
+    const computedTitle =
+      (coreCfg.titleMode === "template"
+        ? deriveTitleFromTemplate(coreCfg.titleTemplate || "", data || {})
+        : title) || "";
+
+    if (!computedTitle.trim()) {
       setError("Title is required.");
       return;
     }
 
-    const finalSlug = slug.trim() || slugify(title);
+    const finalSlug = (slug || "").trim() || slugify(computedTitle);
 
     try {
       setSaving(true);
@@ -525,16 +648,16 @@ export default function Editor() {
 
       const mergedData = {
         ...sanitized,
-        title: title.trim(),
+        title: computedTitle.trim(),
         slug: finalSlug,
         status,
-        _title: title.trim(),
+        _title: computedTitle.trim(),
         _slug: finalSlug,
         _status: status,
       };
 
       const payload = {
-        title: title.trim(),
+        title: computedTitle.trim(),
         slug: finalSlug,
         status,
         data: mergedData,
@@ -571,7 +694,7 @@ export default function Editor() {
         if (updated) {
           const entryData = updated.data || mergedData;
 
-          const loadedTitle = updated.title ?? entryData.title ?? entryData._title ?? title;
+          const loadedTitle = updated.title ?? entryData.title ?? entryData._title ?? computedTitle;
           const loadedSlug = updated.slug ?? entryData.slug ?? entryData._slug ?? finalSlug;
           const loadedStatus =
             updated.status ?? entryData.status ?? entryData._status ?? status;
@@ -778,38 +901,45 @@ export default function Editor() {
         <form onSubmit={handleSave}>
           {/* Core fields */}
           <div style={{ display: "grid", gap: 12, marginBottom: 20 }}>
-            <label style={{ fontSize: 13 }}>
-              Title
-              <input
-                className="su-input"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="My great entry"
-              />
-            </label>
+            {!coreCfg.hideTitle && (
+              <label style={{ fontSize: 13 }}>
+                {coreCfg.titleLabel || "Title"}
+                <input
+                  className="su-input"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="My great entry"
+                  disabled={coreCfg.titleMode === "template"} // derived titles are driven by template
+                />
+              </label>
+            )}
 
-            <label style={{ fontSize: 13 }}>
-              Slug
-              <input
-                className="su-input"
-                value={slug}
-                onChange={(e) => setSlug(e.target.value)}
-                placeholder={slugify(title || "my-entry")}
-              />
-            </label>
+            {!coreCfg.hideSlug && (
+              <label style={{ fontSize: 13 }}>
+                {coreCfg.slugLabel || "Slug"}
+                <input
+                  className="su-input"
+                  value={slug}
+                  onChange={(e) => setSlug(e.target.value)}
+                  placeholder={slugify(title || "my-entry")}
+                />
+              </label>
+            )}
 
-            <label style={{ fontSize: 13 }}>
-              Status
-              <select
-                className="su-select"
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
-              >
-                <option value="draft">Draft</option>
-                <option value="published">Published</option>
-                <option value="archived">Archived</option>
-              </select>
-            </label>
+            {!coreCfg.hideStatus && (
+              <label style={{ fontSize: 13 }}>
+                {coreCfg.statusLabel || "Status"}
+                <select
+                  className="su-select"
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value)}
+                >
+                  <option value="draft">Draft</option>
+                  <option value="published">Published</option>
+                  <option value="archived">Archived</option>
+                </select>
+              </label>
+            )}
           </div>
 
           {/* Structured fields */}
@@ -922,68 +1052,70 @@ export default function Editor() {
         </form>
       </div>
 
-      {/* RIGHT: Preview card */}
-      <div className="su-card">
-        <h2 style={{ marginTop: 0, marginBottom: 12 }}>Preview</h2>
+      {/* RIGHT: Preview card (can be hidden by view config) */}
+      {!coreCfg.hidePreview && (
+        <div className="su-card">
+          <h2 style={{ marginTop: 0, marginBottom: 12 }}>Preview</h2>
 
-        <div
-          style={{
-            borderRadius: 10,
-            border: "1px solid var(--su-border)",
-            padding: 12,
-            marginBottom: 16,
-          }}
-        >
-          <div style={{ marginBottom: 8 }}>
-            <div style={{ fontSize: 16, fontWeight: 600 }}>{title || "(untitled entry)"}</div>
-            <div style={{ fontSize: 12, opacity: 0.7 }}>
-              /{slug || slugify(title || "my-entry")} ·{" "}
-              <span style={{ textTransform: "uppercase" }}>{status}</span>
+          <div
+            style={{
+              borderRadius: 10,
+              border: "1px solid var(--su-border)",
+              padding: 12,
+              marginBottom: 16,
+            }}
+          >
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 16, fontWeight: 600 }}>{title || "(untitled entry)"}</div>
+              <div style={{ fontSize: 12, opacity: 0.7 }}>
+                /{slug || slugify(title || "my-entry")} ·{" "}
+                <span style={{ textTransform: "uppercase" }}>{status}</span>
+              </div>
+            </div>
+
+            <div style={{ borderTop: "1px solid var(--su-border)", paddingTop: 8 }}>
+              {customFieldEntries.length === 0 && (
+                <p style={{ fontSize: 12, opacity: 0.7 }}>No fields yet.</p>
+              )}
+
+              {customFieldEntries.map(([k, v]) => (
+                <div
+                  key={k}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "120px minmax(0,1fr)",
+                    gap: 8,
+                    padding: "4px 0",
+                    fontSize: 13,
+                  }}
+                >
+                  <div style={{ opacity: 0.7 }}>{k}</div>
+                  <div>{prettyValueForField(k, v)}</div>
+                </div>
+              ))}
             </div>
           </div>
 
-          <div style={{ borderTop: "1px solid var(--su-border)", paddingTop: 8 }}>
-            {customFieldEntries.length === 0 && (
-              <p style={{ fontSize: 12, opacity: 0.7 }}>No fields yet.</p>
-            )}
-
-            {customFieldEntries.map(([k, v]) => (
-              <div
-                key={k}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "120px minmax(0,1fr)",
-                  gap: 8,
-                  padding: "4px 0",
-                  fontSize: 13,
-                }}
-              >
-                <div style={{ opacity: 0.7 }}>{k}</div>
-                <div>{prettyValueForField(k, v)}</div>
-              </div>
-            ))}
-          </div>
+          <h3 style={{ marginTop: 0, marginBottom: 8, fontSize: 14 }}>
+            Raw JSON (<code>entries.data</code>)
+          </h3>
+          <pre
+            style={{
+              fontSize: 11,
+              background: "#0b1120",
+              color: "#d1fae5",
+              borderRadius: 10,
+              padding: 10,
+              maxHeight: 480,
+              overflow: "auto",
+              fontFamily:
+                'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+            }}
+          >
+            {JSON.stringify(previewData, null, 2)}
+          </pre>
         </div>
-
-        <h3 style={{ marginTop: 0, marginBottom: 8, fontSize: 14 }}>
-          Raw JSON (<code>entries.data</code>)
-        </h3>
-        <pre
-          style={{
-            fontSize: 11,
-            background: "#0b1120",
-            color: "#d1fae5",
-            borderRadius: 10,
-            padding: 10,
-            maxHeight: 480,
-            overflow: "auto",
-            fontFamily:
-              'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-          }}
-        >
-          {JSON.stringify(previewData, null, 2)}
-        </pre>
-      </div>
+      )}
     </div>
   );
 }
