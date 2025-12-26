@@ -12,6 +12,7 @@ function slugify(value) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
 }
+
 function getRoleFromToken() {
   try {
     const token =
@@ -198,7 +199,11 @@ function getByPath(obj, path) {
 
 function asPrettyInline(value) {
   if (value == null) return "";
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean")
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
     return String(value);
 
   // name field object common shape
@@ -210,7 +215,11 @@ function asPrettyInline(value) {
     const suffix = value.suffix || "";
 
     const looksLikeName =
-      "first" in value || "last" in value || "middle" in value || "title" in value || "suffix" in value;
+      "first" in value ||
+      "last" in value ||
+      "middle" in value ||
+      "title" in value ||
+      "suffix" in value;
 
     if (looksLikeName) {
       const bits = [];
@@ -258,10 +267,10 @@ export default function Editor() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
-const roleUpper = useMemo(() => {
-  const r = getRoleFromToken();
-  return String(r || "ADMIN").toUpperCase();
-}, []);
+  const roleUpper = useMemo(() => {
+    const r = getRoleFromToken();
+    return String(r || "ADMIN").toUpperCase();
+  }, []);
 
   const isNew = !entryId || entryId === "new";
 
@@ -297,9 +306,10 @@ const roleUpper = useMemo(() => {
 
   // ✅ core config (from EntryViews builder)
   const coreCfg = useMemo(() => {
-    const c = editorViewConfig?.core && typeof editorViewConfig.core === "object"
-      ? editorViewConfig.core
-      : {};
+    const c =
+      editorViewConfig?.core && typeof editorViewConfig.core === "object"
+        ? editorViewConfig.core
+        : {};
     return {
       titleLabel: c.titleLabel || "Title",
       slugLabel: c.slugLabel || "Slug",
@@ -343,15 +353,10 @@ const roleUpper = useMemo(() => {
 
         let fullCt;
         try {
-          const fullRes = await api.get(
-            `/api/content-types/${basicCt.id}?all=true`
-          );
+          const fullRes = await api.get(`/api/content-types/${basicCt.id}?all=true`);
           fullCt = fullRes?.data || fullRes || basicCt;
         } catch (e) {
-          console.warn(
-            "Failed to load full content type, falling back to basic",
-            e
-          );
+          console.warn("Failed to load full content type, falling back to basic", e);
           fullCt = basicCt;
         }
 
@@ -365,12 +370,11 @@ const roleUpper = useMemo(() => {
             const vRes = await api.get(
               `/api/content-types/${fullCt.id}/editor-views?role=${encodeURIComponent(
                 roleUpper
-              )}`
+              )}&_=${Date.now()}`
             );
             const rawViews = vRes?.data ?? vRes;
             if (Array.isArray(rawViews)) views = rawViews;
-            else if (rawViews && Array.isArray(rawViews.views))
-              views = rawViews.views;
+            else if (rawViews && Array.isArray(rawViews.views)) views = rawViews.views;
           } catch (err) {
             console.warn(
               "[Editor] Failed to load editor views for type; falling back to auto layout",
@@ -389,9 +393,7 @@ const roleUpper = useMemo(() => {
             views.find((v) => {
               const cfg = v.config || {};
               const dRoles = Array.isArray(cfg.default_roles)
-                ? cfg.default_roles.map((r) =>
-                    String(r || "").toUpperCase()
-                  )
+                ? cfg.default_roles.map((r) => String(r || "").toUpperCase())
                 : [];
               if (dRoles.length) return dRoles.includes(roleUpper);
               return !!v.is_default;
@@ -409,10 +411,7 @@ const roleUpper = useMemo(() => {
           if (!cancelled) {
             setActiveViewSlug(chosenView.slug);
             setActiveViewLabel(
-              chosenView.label ||
-                chosenView.name ||
-                chosenView.title ||
-                chosenView.slug
+              chosenView.label || chosenView.name || chosenView.title || chosenView.slug
             );
             setEditorViewConfig(chosenView.config || {});
           }
@@ -446,8 +445,9 @@ const roleUpper = useMemo(() => {
     return () => {
       cancelled = true;
     };
+    // IMPORTANT: include roleUpper + searchParams so view selection reloads correctly
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [typeSlug]);
+  }, [typeSlug, roleUpper, searchParams]);
 
   const sections = useMemo(
     () => buildLayoutFromView(contentType, editorViewConfig),
@@ -607,8 +607,7 @@ const roleUpper = useMemo(() => {
 
         const loadedTitle = entry.title ?? entryData.title ?? entryData._title ?? "";
         const loadedSlug = entry.slug ?? entryData.slug ?? entryData._slug ?? "";
-        const loadedStatus =
-          entry.status ?? entryData.status ?? entryData._status ?? "draft";
+        const loadedStatus = entry.status ?? entryData.status ?? entryData._status ?? "draft";
 
         setTitle(loadedTitle);
         setSlug(loadedSlug);
@@ -638,11 +637,8 @@ const roleUpper = useMemo(() => {
     const derived = deriveTitleFromTemplate(coreCfg.titleTemplate || "", data || {});
     if (!derived) return;
 
-    // Always keep title in sync when template mode is on.
-    // If you want “only set if empty”, tell me and we can add a toggle.
     setTitle(derived);
 
-    // If slug is empty and view says auto-slug, sync it too
     if (coreCfg.autoSlugFromTitleIfEmpty && !String(slug || "").trim()) {
       setSlug(slugify(derived));
     }
@@ -657,7 +653,6 @@ const roleUpper = useMemo(() => {
     setError("");
     setSaveMessage("");
 
-    // Title may be hidden, but still required: ensure it exists (derived or manual)
     const computedTitle =
       (coreCfg.titleMode === "template"
         ? deriveTitleFromTemplate(coreCfg.titleTemplate || "", data || {})
@@ -729,7 +724,8 @@ const roleUpper = useMemo(() => {
         if (updated) {
           const entryData = updated.data || mergedData;
 
-          const loadedTitle = updated.title ?? entryData.title ?? entryData._title ?? computedTitle;
+          const loadedTitle =
+            updated.title ?? entryData.title ?? entryData._title ?? computedTitle;
           const loadedSlug = updated.slug ?? entryData.slug ?? entryData._slug ?? finalSlug;
           const loadedStatus =
             updated.status ?? entryData.status ?? entryData._status ?? status;
@@ -765,7 +761,8 @@ const roleUpper = useMemo(() => {
     try {
       setSaving(true);
       setSaveMessage("");
-      const res = await api.del(`/api/content/${typeSlug}/${entryId}`);
+      // NOTE: api wrappers typically use `.delete`, not `.del`
+      const res = await api.delete(`/api/content/${typeSlug}/${entryId}`);
       if (res && res.ok === false) {
         throw new Error(res.error || res.detail || "Failed to delete entry");
       }
@@ -781,10 +778,7 @@ const roleUpper = useMemo(() => {
   // ---------------------------------------------------------------------------
   // Preview helpers
   // ---------------------------------------------------------------------------
-  const previewData = useMemo(
-    () => ({ ...data, title, slug, status }),
-    [data, title, slug, status]
-  );
+  const previewData = useMemo(() => ({ ...data, title, slug, status }), [data, title, slug, status]);
 
   const fieldDefByKey = useMemo(() => {
     const map = {};
@@ -929,9 +923,7 @@ const roleUpper = useMemo(() => {
           </div>
         )}
 
-        {overallLoading && !isNew && (
-          <p style={{ fontSize: 13, opacity: 0.7 }}>Loading entry…</p>
-        )}
+        {overallLoading && !isNew && <p style={{ fontSize: 13, opacity: 0.7 }}>Loading entry…</p>}
 
         <form onSubmit={handleSave}>
           {/* Core fields */}
@@ -944,7 +936,7 @@ const roleUpper = useMemo(() => {
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="My great entry"
-                  disabled={coreCfg.titleMode === "template"} // derived titles are driven by template
+                  disabled={coreCfg.titleMode === "template"}
                 />
               </label>
             )}
@@ -964,11 +956,7 @@ const roleUpper = useMemo(() => {
             {!coreCfg.hideStatus && (
               <label style={{ fontSize: 13 }}>
                 {coreCfg.statusLabel || "Status"}
-                <select
-                  className="su-select"
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value)}
-                >
+                <select className="su-select" value={status} onChange={(e) => setStatus(e.target.value)}>
                   <option value="draft">Draft</option>
                   <option value="published">Published</option>
                   <option value="archived">Archived</option>
@@ -988,9 +976,7 @@ const roleUpper = useMemo(() => {
               }}
             >
               <h3 style={{ margin: 0, fontSize: 14 }}>Fields</h3>
-              <span style={{ fontSize: 11, opacity: 0.7 }}>
-                Powered by QuickBuilder &amp; editor views.
-              </span>
+              <span style={{ fontSize: 11, opacity: 0.7 }}>Powered by QuickBuilder &amp; editor views.</span>
             </div>
 
             {!sections.length && (
@@ -1011,9 +997,7 @@ const roleUpper = useMemo(() => {
                 }}
               >
                 {section.title && (
-                  <div style={{ marginBottom: 8, fontSize: 13, fontWeight: 600 }}>
-                    {section.title}
-                  </div>
+                  <div style={{ marginBottom: 8, fontSize: 13, fontWeight: 600 }}>{section.title}</div>
                 )}
 
                 <div
@@ -1049,9 +1033,7 @@ const roleUpper = useMemo(() => {
                           />
 
                           {(def.help || def.description) && (
-                            <div style={{ fontSize: 12, opacity: 0.7 }}>
-                              {def.help || def.description}
-                            </div>
+                            <div style={{ fontSize: 12, opacity: 0.7 }}>{def.help || def.description}</div>
                           )}
                         </div>
                       </div>
@@ -1109,9 +1091,7 @@ const roleUpper = useMemo(() => {
             </div>
 
             <div style={{ borderTop: "1px solid var(--su-border)", paddingTop: 8 }}>
-              {customFieldEntries.length === 0 && (
-                <p style={{ fontSize: 12, opacity: 0.7 }}>No fields yet.</p>
-              )}
+              {customFieldEntries.length === 0 && <p style={{ fontSize: 12, opacity: 0.7 }}>No fields yet.</p>}
 
               {customFieldEntries.map(([k, v]) => (
                 <div
