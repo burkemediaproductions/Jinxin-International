@@ -1,45 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { useSettings } from '../context/SettingsContext';
+import React, { useEffect, useMemo, useState } from "react";
+import { NavLink, useLocation } from "react-router-dom";
+import { useSettings } from "../context/SettingsContext";
 
-// Best-effort role resolver so we can hide items/preview/slug for non-admin roles
-// even when the parent app hasn't wired a role prop yet.
-function getRoleFromToken() {
-  try {
-    const token =
-      window.localStorage.getItem('token') ||
-      window.localStorage.getItem('serviceup_token') ||
-      window.localStorage.getItem('jwt') ||
-      window.localStorage.getItem('authToken');
-    if (!token) return null;
-    const parts = String(token).split('.');
-    if (parts.length < 2) return null;
-    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    const json = decodeURIComponent(
-      atob(b64)
-        .split('')
-        .map((c) => `%${('00' + c.charCodeAt(0).toString(16)).slice(-2)}`)
-        .join(''),
-    );
-    const payload = JSON.parse(json);
-    return payload?.role || payload?.user?.role || payload?.claims?.role || null;
-  } catch {
-    return null;
-  }
-}
-
-function clearAuthTokens() {
-  const keys = ['token', 'serviceup_token', 'jwt', 'authToken', 'access_token'];
-  for (const k of keys) {
-    try {
-      window.localStorage.removeItem(k);
-    } catch {
-      // ignore
-    }
-  }
-}
-
-// Utility to check if the current role can see an item.  If the item has
+// Utility to check if the current role can see an item. If the item has
 // no roles specified (or roles is an empty array), it's visible to all.
 const canSee = (itemRoles, role) => {
   if (!Array.isArray(itemRoles) || itemRoles.length === 0) return true;
@@ -47,110 +10,204 @@ const canSee = (itemRoles, role) => {
   return itemRoles.includes(role);
 };
 
-// Stateless link component for sidebar links.  Applies a primary class when
-// the NavLink matches the current location.
+// Stateless link component for sidebar links.
+// Applies a primary class when the NavLink matches the current location.
 const SidebarLink = ({ to, label, target }) => (
   <NavLink
     to={to}
-    target={target || '_self'}
+    target={target || "_self"}
     className={({ isActive }) =>
-      'su-btn su-nav-link' + (isActive ? ' primary' : '')
+      "su-btn su-nav-link" + (isActive ? " primary" : "")
     }
-    style={{ display: 'block', marginBottom: 8 }}
+    style={{ display: "block", marginBottom: 8 }}
   >
     {label}
   </NavLink>
 );
 
 /**
- * Sidebar renders a navigation sidebar.  It accepts an `onClose` callback
- * which will be called when the user clicks the mobile close button and a
- * `role` prop used to filter items by role.
+ * Sidebar renders a navigation sidebar.
+ * Props:
+ * - onClose: optional callback for mobile close button
+ * - role: current user's role, used to filter items by item.roles
+ * - onLogout: optional callback you can pass if you want to run extra logic
  */
-export default function Sidebar({ onClose, role }) {
+export default function Sidebar({ onClose, role = "ADMIN", onLogout }) {
   const { settings } = useSettings();
   const location = useLocation();
-  const navigate = useNavigate();
 
-  const effectiveRole = useMemo(() => {
-    const fromProp = role ? String(role).toUpperCase() : null;
-    const fromToken = getRoleFromToken();
-    return (fromProp || fromToken || 'ADMIN').toUpperCase();
-  }, [role]);
+  // Default nav when settings.navSidebar isn't provided.
+  const defaultNav = useMemo(
+    () => [
+      { label: "Dashboard", to: "/admin" },
+      { label: "Menus", to: "/admin/menus" },
+      { label: "Headers", to: "/admin/headers" },
+      { label: "Footers", to: "/admin/footers" },
+      { label: "Users", to: "/admin/users" },
+      { label: "Taxonomies", to: "/admin/taxonomies" },
+      { label: "Content", to: "/admin/content" },
+      { label: "Quick Builder", to: "/admin/quick-builder" },
+      {
+        label: "Settings",
+        children: [
+          { label: "Settings", to: "/admin/settings" },
+          { label: "Roles", to: "/admin/settings/roles" },
+          { label: "Dashboards", to: "/admin/settings/dashboards" },
+          { label: "Permissions", to: "/admin/settings/permissions" },
+          { label: "Entry Views", to: "/admin/settings/entry-views" },
+          { label: "List Views", to: "/admin/settings/list-views" },
+        ],
+      },
+    ],
+    []
+  );
 
-  const handleLogout = () => {
-    clearAuthTokens();
-    // Choose your login route:
-    navigate('/login', { replace: true });
+  // Determine which nav items to render: prefer settings.navSidebar, then settings.nav,
+  // otherwise fall back to defaultNav.
+  const items = useMemo(() => {
+    const fromSidebar =
+      Array.isArray(settings?.navSidebar) && settings.navSidebar.length > 0
+        ? settings.navSidebar
+        : null;
+
+    const fromNav =
+      !fromSidebar && Array.isArray(settings?.nav) && settings.nav.length > 0
+        ? settings.nav
+        : null;
+
+    return fromSidebar || fromNav || defaultNav;
+  }, [settings, defaultNav]);
+
+  // Keep track of which parent menus are expanded.
+  const [openParents, setOpenParents] = useState({});
+
+  // Automatically open any parent whose children contain the current route.
+  useEffect(() => {
+    const path = location.pathname;
+    const nextOpen = {};
+
+    items.forEach((item, index) => {
+      if (!Array.isArray(item.children) || item.children.length === 0) return;
+
+      // If any visible child matches the current path, open the parent.
+      const anyChildMatches = item.children.some((child) => {
+        if (!child?.to) return false;
+        // Also respect roles when deciding to auto-open
+        if (!canSee(child.roles, role)) return false;
+        return path === child.to || path.startsWith(child.to + "/") || path.startsWith(child.to);
+      });
+
+      if (anyChildMatches) nextOpen[index] = true;
+    });
+
+    setOpenParents((prev) => ({ ...prev, ...nextOpen }));
+  }, [location.pathname, items, role]);
+
+  const toggleParent = (index) => {
+    setOpenParents((prev) => ({
+      ...prev,
+      [index]: !prev[index],
+    }));
   };
 
-  // use hideChromeByRole (if desired) to hide entire sidebar for a role
-  const hideChromeByRole = settings?.hideChromeByRole || {};
-  const hideSidebar = !!hideChromeByRole[effectiveRole];
-  if (hideSidebar) return null;
+  const handleLogout = () => {
+    try {
+      // Remove common token keys (safe even if some don't exist)
+      localStorage.removeItem("token");
+      localStorage.removeItem("access_token");
+      localStorage.removeItem("jwt");
+      localStorage.removeItem("serviceup_token");
 
-  const [isMobileOpen, setMobileOpen] = useState(false);
+      // Also clear any cached user
+      localStorage.removeItem("user");
+      localStorage.removeItem("me");
+    } catch (e) {
+      // ignore
+    }
 
-  // Basic nav items (you likely already have this list in your version).
-  // Keep yours if it’s more complete — this component supports role filtering.
-  const items = settings?.sidebarItems || [
-    { label: 'Dashboard', to: '/admin' },
-    { label: 'Content Types', to: '/admin/content-types' },
-    { label: 'Settings', to: '/admin/settings' },
-  ];
+    if (typeof onLogout === "function") {
+      onLogout();
+      return;
+    }
 
-  useEffect(() => {
-    // close on route change (mobile)
-    setMobileOpen(false);
-    onClose?.();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.pathname]);
+    // Default: send to login
+    window.location.href = "/login";
+  };
 
   return (
-    <aside className="su-sidebar" aria-label="Sidebar navigation">
-      <div className="su-sidebar-header su-flex su-justify-between su-items-center">
-        <div className="su-text-sm su-text-muted">
-          Role: <strong>{effectiveRole}</strong>
-        </div>
+    <aside className="su-sidebar" aria-label="Main navigation">
+      {onClose && (
         <button
           type="button"
-          className="su-btn su-btn-ghost"
-          onClick={() => setMobileOpen((v) => !v)}
+          className="su-btn su-sidebar-close"
+          onClick={onClose}
+          aria-label="Close navigation menu"
         >
-          ☰
+          ✕ Close
         </button>
-      </div>
+      )}
+
+      <div className="su-nav-header">Menu</div>
 
       {items.map((item, i) => {
-        if (!canSee(item.roles, effectiveRole)) return null;
+        // Skip item if role isn't allowed
+        if (!canSee(item.roles, role)) return null;
 
-        const isGroup = Array.isArray(item.children) && item.children.length > 0;
-        const visibleChildren = isGroup
-          ? item.children.filter((child) => canSee(child.roles, effectiveRole))
-          : [];
+        const hasChildren = Array.isArray(item.children) && item.children.length > 0;
+
+        // Simple link
+        if (!hasChildren) {
+          if (!item.to) return null;
+          return (
+            <SidebarLink
+              key={i}
+              to={item.to}
+              label={item.label || "Untitled"}
+              target={item.target}
+            />
+          );
+        }
+
+        // Parent group with children filtered by role
+        const visibleChildren = item.children.filter((child) => canSee(child.roles, role));
+
+        // If no visible children, fall back to parent link if it exists
+        if (visibleChildren.length === 0) {
+          if (!item.to) return null;
+          return (
+            <SidebarLink
+              key={i}
+              to={item.to}
+              label={item.label || "Untitled"}
+              target={item.target}
+            />
+          );
+        }
+
+        const isOpen = !!openParents[i];
 
         return (
-          <div key={i} style={{ marginBottom: 8 }}>
-            {item.to ? (
-              <SidebarLink
-                to={item.to}
-                label={item.label || 'Link'}
-                target={item.target}
-              />
-            ) : (
-              <div className="su-text-xs su-text-muted" style={{ padding: '6px 0' }}>
-                {item.label}
-              </div>
-            )}
+          <div key={i} className={"su-nav-parent" + (isOpen ? " open" : "")}>
+            <button
+              type="button"
+              className="su-btn su-nav-parent-toggle"
+              onClick={() => toggleParent(i)}
+              aria-expanded={isOpen ? "true" : "false"}
+            >
+              <span className="su-nav-parent-label">{item.label || "Section"}</span>
+              <span className="su-nav-caret" aria-hidden="true">
+                ▸
+              </span>
+            </button>
 
-            {visibleChildren.length > 0 && (
-              <div style={{ paddingLeft: 10 }}>
+            {isOpen && (
+              <div className="su-nav-children">
                 {visibleChildren.map((child, ci) =>
                   child.to ? (
                     <SidebarLink
-                      key={ci}
+                      key={`${i}-${ci}`}
                       to={child.to}
-                      label={child.label || 'Link'}
+                      label={child.label || "Link"}
                       target={child.target || item.target}
                     />
                   ) : null
@@ -161,13 +218,13 @@ export default function Sidebar({ onClose, role }) {
         );
       })}
 
-      {/* Logout pinned to bottom */}
-      <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--su-border)' }}>
+      {/* Logout pinned at bottom */}
+      <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--su-border)" }}>
         <button
           type="button"
-          className="su-btn su-nav-link"
+          className="su-btn"
+          style={{ width: "100%" }}
           onClick={handleLogout}
-          style={{ width: '100%', display: 'block' }}
         >
           Logout
         </button>
