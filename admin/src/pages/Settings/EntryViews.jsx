@@ -59,6 +59,31 @@ const EMPTY_CORE = {
   autoSlugFromTitleIfEmpty: true,
 };
 
+// ✅ normalize field refs from legacy shapes:
+// string: "my_field"
+// object: { key } or { field } or { field_key } or { key, width, visible }
+function normalizeFieldKey(f) {
+  if (!f) return null;
+  if (typeof f === "string") return f;
+  if (typeof f === "object") {
+    return f.key || f.field || f.field_key || null;
+  }
+  return null;
+}
+
+// ✅ support multiple backend shapes for sections/widgets
+function getSectionsFromView(view) {
+  const cfg = view?.config && typeof view.config === "object" ? view.config : {};
+  const candidates = [
+    cfg.sections,
+    view?.sections,
+    cfg.widgets,
+    view?.widgets,
+  ];
+  const raw = candidates.find((x) => Array.isArray(x));
+  return Array.isArray(raw) ? raw : [];
+}
+
 export default function EntryViews() {
   const params = useParams();
   const navigate = useNavigate();
@@ -83,7 +108,7 @@ export default function EntryViews() {
   const [defaultRoles, setDefaultRoles] = useState([]);
   const [adminOnly, setAdminOnly] = useState(false);
 
-  // ✅ NEW: Core editor behavior (stored in view.config.core)
+  // ✅ Core editor behavior (stored in view.config.core)
   const [core, setCore] = useState(EMPTY_CORE);
 
   const [sections, setSections] = useState([]); // widgets
@@ -163,8 +188,6 @@ export default function EntryViews() {
 
         if (!cancelled) {
           setContentTypes(list);
-          // No auto-navigation here: /admin/settings/entry-views should
-          // stay on the content-type picker.
         }
       } catch (err) {
         if (!cancelled) setError("Failed to load content types");
@@ -185,7 +208,7 @@ export default function EntryViews() {
     // Custom fields from the content type
     const custom = (ct && Array.isArray(ct.fields) ? ct.fields : [])
       .map((f) => {
-        const key = f.key || f.field_key;
+        const key = f.field_key || f.key;
         return key
           ? {
               key,
@@ -246,6 +269,7 @@ export default function EntryViews() {
           const found = loadedViews.find((v) => v.slug === activeViewSlug);
           if (found) {
             loadViewForEdit(found);
+            setStage("edit"); // ✅ ensure stage matches URL
           }
         } else {
           // reset form state when switching content types
@@ -301,17 +325,19 @@ export default function EntryViews() {
         : EMPTY_CORE;
     setCore(loadedCore);
 
-    const secs = Array.isArray(view?.config?.sections)
-      ? view.config.sections.map((s, idx) => ({
+    // ✅ sections/widgets: support multiple shapes
+    const rawSections = getSectionsFromView(view);
+
+    const secs = Array.isArray(rawSections)
+      ? rawSections.map((s, idx) => ({
           id: s.id || `widget-${idx + 1}`,
           title: s.title || `Widget ${idx + 1}`,
           description: s.description || "",
           layout: s.layout || "one-column",
           // IMPORTANT: keep ALL fields (built-ins + custom)
+          // Normalize legacy shapes and object shapes
           fields: Array.isArray(s.fields)
-            ? s.fields
-                .map((f) => (typeof f === "string" ? f : f.key))
-                .filter(Boolean)
+            ? s.fields.map(normalizeFieldKey).filter(Boolean)
             : [],
         }))
       : [];
@@ -480,7 +506,6 @@ export default function EntryViews() {
   // ---------------------------------------------------------------------------
   const handleSelectType = (val) => {
     if (!val) return;
-    // Use slug or id in the URL
     navigate(`/admin/settings/entry-views/${val}`);
   };
 
@@ -554,7 +579,7 @@ export default function EntryViews() {
     // IMPORTANT: keep all fields (including built-ins) and only drop completely empty widgets
     const payloadSections = sections
       .map((sec) => {
-        const cleanedFields = (sec.fields || []).filter(Boolean);
+        const cleanedFields = (sec.fields || []).map(normalizeFieldKey).filter(Boolean);
         return {
           id: sec.id,
           title: sec.title,
@@ -571,17 +596,16 @@ export default function EntryViews() {
     }
 
     // ✅ Persist everything inside `config` (matches what we read as `view.config.*`)
-   const payload = {
-     slug,
-     label: currentLabel,
-     config: {
-       roles: rolesArray,
-       default_roles: defaults,
-       core: core || EMPTY_CORE,
-       sections: payloadSections,
+    const payload = {
+      slug,
+      label: currentLabel,
+      config: {
+        roles: rolesArray,
+        default_roles: defaults,
+        core: core || EMPTY_CORE,
+        sections: payloadSections,
       },
     };
-
 
     try {
       setLoading(true);
@@ -599,48 +623,7 @@ export default function EntryViews() {
 
       const newly = newViews.find((v) => v.slug === slug) || null;
       if (newly) {
-        // Mirror loadViewForEdit
-        setActiveViewSlug(newly.slug);
-        setCurrentLabel(newly.label);
-
-        const cfgRoles = Array.isArray(newly?.config?.roles)
-          ? newly.config.roles.map((r) => String(r || "").toUpperCase())
-          : newly.role
-          ? [String(newly.role || "").toUpperCase()]
-          : [];
-        setAssignedRoles(cfgRoles);
-
-        const cfgDefaults = Array.isArray(newly?.config?.default_roles)
-          ? newly.config.default_roles.map((r) => String(r || "").toUpperCase())
-          : [];
-        setDefaultRoles(cfgDefaults);
-
-        const nonAdminAfter = cfgRoles.filter(
-          (r) => r.toUpperCase() !== "ADMIN"
-        );
-        setAdminOnly(nonAdminAfter.length === 0);
-
-        const loadedCore =
-          newly?.config?.core && typeof newly.config.core === "object"
-            ? { ...EMPTY_CORE, ...newly.config.core }
-            : EMPTY_CORE;
-        setCore(loadedCore);
-
-        const secs = Array.isArray(newly?.config?.sections)
-          ? newly.config.sections.map((s, idx) => ({
-              id: s.id || `widget-${idx + 1}`,
-              title: s.title || `Widget ${idx + 1}`,
-              description: s.description || "",
-              layout: s.layout || "one-column",
-              fields: Array.isArray(s.fields)
-                ? s.fields
-                    .map((f) => (typeof f === "string" ? f : f.key))
-                    .filter(Boolean)
-                : [],
-            }))
-          : [];
-        setSections(secs);
-        setSelectedSectionIndex(0);
+        loadViewForEdit(newly);
       }
 
       setDirty(false);
@@ -658,9 +641,12 @@ export default function EntryViews() {
     if (!window.confirm("Delete this entry editor view?")) return;
     try {
       setLoading(true);
-      await api.delete(
+
+      // ✅ your api helper in the rest of the project uses .del(...)
+      await api.del(
         `/api/content-types/${selectedTypeId}/editor-view/${activeViewSlug}`
       );
+
       const remaining = views.filter((v) => v.slug !== activeViewSlug);
       setViews(remaining);
       setActiveViewSlug("");
@@ -969,7 +955,7 @@ export default function EntryViews() {
                 />
               </div>
 
-              {/* ✅ NEW: Core field behavior */}
+              {/* Core field behavior */}
               <div className="su-card" style={{ background: "var(--su-surface)" }}>
                 <div className="su-card-body su-space-y-sm">
                   <div className="su-text-sm su-font-semibold">
@@ -1078,7 +1064,10 @@ export default function EntryViews() {
                         type="checkbox"
                         checked={core.autoSlugFromTitleIfEmpty !== false}
                         onChange={(e) => {
-                          setCore((prev) => ({ ...prev, autoSlugFromTitleIfEmpty: e.target.checked }));
+                          setCore((prev) => ({
+                            ...prev,
+                            autoSlugFromTitleIfEmpty: e.target.checked,
+                          }));
                           setDirty(true);
                         }}
                       />
@@ -1092,10 +1081,7 @@ export default function EntryViews() {
                 <label className="su-form-label">Assigned roles</label>
                 <div className="su-flex su-flex-wrap su-gap-sm">
                   {allRoles.map((r) => (
-                    <label
-                      key={r}
-                      className="su-chip su-items-center su-gap-xs"
-                    >
+                    <label key={r} className="su-chip su-items-center su-gap-xs">
                       <input
                         type="checkbox"
                         checked={assignedRoles.includes(r)}
@@ -1114,16 +1100,14 @@ export default function EntryViews() {
                   </label>
                 </div>
               </div>
+
               <div>
                 <label className="su-form-label">Default roles</label>
                 <div className="su-flex su-flex-wrap su-gap-sm">
                   {assignedRoles
                     .filter((r) => !adminOnly || r === "ADMIN")
                     .map((r) => (
-                      <label
-                        key={r}
-                        className="su-chip su-items-center su-gap-xs"
-                      >
+                      <label key={r} className="su-chip su-items-center su-gap-xs">
                         <input
                           type="checkbox"
                           checked={defaultRoles.includes(r)}
@@ -1134,6 +1118,7 @@ export default function EntryViews() {
                     ))}
                 </div>
               </div>
+
               <div>
                 <small className="su-text-xs su-text-muted">
                   Slug preview: /admin/content/
@@ -1146,6 +1131,7 @@ export default function EntryViews() {
                   </strong>
                 </small>
               </div>
+
               <div className="su-flex su-gap-sm">
                 <button
                   className="su-btn su-btn-primary"
@@ -1155,6 +1141,7 @@ export default function EntryViews() {
                 >
                   {loading ? "Saving…" : "Save"}
                 </button>
+
                 {activeViewSlug && (
                   <button
                     className="su-btn su-btn-error"
@@ -1165,19 +1152,18 @@ export default function EntryViews() {
                     Delete
                   </button>
                 )}
+
                 {saveMessage && (
-                  <span className="su-text-xs su-text-success">
-                    {saveMessage}
-                  </span>
+                  <span className="su-text-xs su-text-success">{saveMessage}</span>
                 )}
               </div>
+
               {error && (
-                <div className="su-alert su-alert-danger su-mt-sm">
-                  {error}
-                </div>
+                <div className="su-alert su-alert-danger su-mt-sm">{error}</div>
               )}
             </div>
           </div>
+
           {/* Right column: widget builder */}
           <div className="su-grid md:grid-cols-2 gap-md">
             <div>
