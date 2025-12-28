@@ -315,80 +315,77 @@ export default function EntryViews() {
   // Load content type detail + editor views whenever selectedTypeId or active view changes
   // ---------------------------------------------------------------------------
   useEffect(() => {
-    if (!selectedTypeId) return;
-    let cancelled = false;
-    const viewSlugFromRoute = params.viewSlug || "";
+  if (!selectedTypeId) return;
 
-    (async () => {
-      try {
-        setLoading(true);
-        setError("");
-        setSaveMessage("");
+  let cancelled = false;
+  const viewSlugFromRoute = params.viewSlug || "";
+
+  (async () => {
+    try {
+      setLoading(true);
+      setError("");
+      setSaveMessage("");
+      setDirty(false);
+
+      // ✅ load CT detail with all=true so fields exist reliably
+      const ctRes = await api.get(`/api/content-types/${selectedTypeId}?all=true`);
+      const ct = ctRes?.data || ctRes || null;
+      if (cancelled) return;
+
+      setContentTypeDetail(ct);
+      setSelectedTypeUuid(ct?.id || "");
+      setAvailableFields(computeAvailableFields(ct));
+
+      // ✅ use UUID if we have it
+      const readKey = ct?.id || selectedTypeId;
+
+      const viewsRes = await api.get(
+        `/api/content-types/${readKey}/editor-views?all=true&_=${Date.now()}`
+      );
+
+      const rawViews = viewsRes?.data || viewsRes || [];
+      const loadedViews = Array.isArray(rawViews) ? rawViews : rawViews?.views || [];
+
+      if (cancelled) return;
+
+      const normalizedViews = loadedViews.map((v) => ({
+        ...v,
+        config: normalizeConfig(v?.config),
+      }));
+
+      setViews(normalizedViews);
+
+      if (viewSlugFromRoute) {
+        const found = pickBestViewBySlug(normalizedViews, viewSlugFromRoute);
+        if (found) {
+          loadViewForEdit(found);
+        } else {
+          // slug in URL doesn't exist anymore, go back to views list
+          navigate(`/admin/settings/entry-views/${selectedTypeId}`, { replace: true });
+        }
+      } else {
+        setCurrentLabel("");
+        setAssignedRoles(["ADMIN"]);
+        setDefaultRoles([]);
+        setAdminOnly(false);
+        setCore(EMPTY_CORE);
+        setSections([]);
+        setSelectedSectionIndex(0);
         setDirty(false);
-
-        // ✅ load CT detail with all=true so fields exist reliably
-        const ctRes = await api.get(`/api/content-types/${selectedTypeId}?all=true`);
-        const ct = ctRes?.data || ctRes || null;
-        if (cancelled) return;
-
-        setContentTypeDetail(ct);
-        setSelectedTypeUuid(ct?.id || "");
-
-        setAvailableFields(computeAvailableFields(ct));
-
-        // ✅ use UUID if we have it
-        const readKey = ct?.id || selectedTypeId;
-
-        const viewsRes = await api.get(
-          `/api/content-types/${readKey}/editor-views?all=true&_=${Date.now()}`
-        );
-
-        const rawViews = viewsRes?.data || viewsRes || [];
-        const loadedViews = Array.isArray(rawViews)
-          ? rawViews
-          : rawViews?.views || [];
-
-        if (cancelled) return;
-
-        const normalizedViews = loadedViews.map((v) => ({
-          ...v,
-          config: normalizeConfig(v?.config),
-        }));
-
-        setViews(normalizedViews);
-
-
-        if (viewSlugFromRoute) {
-  const found = pickBestViewBySlug(normalizedViews, viewSlugFromRoute);
-  if (found) {
-    loadViewForEdit(found);
-  } else {
-    // slug in URL doesn't exist anymore, go back to views list
-    navigate(`/admin/settings/entry-views/${selectedTypeId}`, { replace: true });
-  }
-} else {
-  setCurrentLabel("");
-  setAssignedRoles(["ADMIN"]);
-  setDefaultRoles([]);
-  setAdminOnly(false);
-  setCore(EMPTY_CORE);
-  setSections([]);
-  setSelectedSectionIndex(0);
-  setDirty(false);
-}
- catch (err) {
-        console.error(err);
-        if (!cancelled) setError("Failed to load editor views");
-      } finally {
-        if (!cancelled) setLoading(false);
       }
-    })();
+    } catch (err) {
+      console.error(err);
+      if (!cancelled) setError("Failed to load editor views");
+    } finally {
+      if (!cancelled) setLoading(false);
+    }
+  })();
 
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedTypeId, params.viewSlug]);
+  return () => {
+    cancelled = true;
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [selectedTypeId, params.viewSlug]);
 
   // ---------------------------------------------------------------------------
   // Load a view into form state for editing
