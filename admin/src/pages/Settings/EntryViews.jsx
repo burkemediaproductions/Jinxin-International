@@ -316,9 +316,23 @@ export default function EntryViews() {
 
 
         if (viewSlugFromRoute) {
-            const found = normalizedViews.find((v) => v.slug === viewSlugFromRoute);
-            if (found) loadViewForEdit(found);
-          } else {
+          const matches = normalizedViews.filter((v) => v.slug === viewSlugFromRoute);
+
+          const found =
+            matches.find((v) => {
+            const c = normalizeConfig(v?.config);
+            const secs =
+                (Array.isArray(c?.sections) && c.sections) ||
+                (Array.isArray(c?.widgets) && c.widgets) ||
+                (Array.isArray(v?.sections) && v.sections) ||
+                (Array.isArray(v?.widgets) && v.widgets) ||
+                (Array.isArray(c?.layout?.sections) && c.layout.sections) ||
+              [];
+            return secs.length > 0;
+          }) || matches[0];
+
+        if (found) loadViewForEdit(found);
+    } else {
           setCurrentLabel("");
           setAssignedRoles(["ADMIN"]);
           setDefaultRoles([]);
@@ -350,7 +364,7 @@ const loadViewForEdit = (view) => {
 
   setCurrentLabel(view.label || view.slug);
   setActiveViewSlug(view.slug || "");
-  setSlugManuallyEdited(true); // existing views: treat slug as intentional
+  setSlugManuallyEdited(true);
 
   const cfg = normalizeConfig(view?.config);
 
@@ -384,24 +398,33 @@ const loadViewForEdit = (view) => {
   setCore(loadedCore);
 
   // ✅ normalize section fields even if they are objects like {field_key:"x"} or {field:"x"}
-  const secs = Array.isArray(cfg?.sections)
-    ? cfg.sections.map((s, idx) => ({
-        id: s.id || `widget-${idx + 1}`,
-        title: s.title || `Widget ${idx + 1}`,
-        description: s.description || "",
-        layout: s.layout || "one-column",
-        fields: Array.isArray(s.fields)
-          ? s.fields
-              .map(normalizeFieldKey)
-              .map((k) => String(k || "").trim())
-              .filter(Boolean)
-          : [],
-      }))
-    : [];
+  const rawSections =
+  (Array.isArray(cfg?.sections) && cfg.sections) ||
+  (Array.isArray(cfg?.widgets) && cfg.widgets) ||
+  (Array.isArray(view?.sections) && view.sections) ||
+  (Array.isArray(view?.widgets) && view.widgets) ||
+  (Array.isArray(cfg?.layout?.sections) && cfg.layout.sections) ||
+  [];
+
+  const secs = rawSections.map((s, idx) => ({
+    id: s.id || `widget-${idx + 1}`,
+    title: s.title || `Widget ${idx + 1}`,
+    description: s.description || "",
+    layout: s.layout || "one-column",
+    fields: Array.isArray(s.fields)
+      ? s.fields.map(normalizeFieldKey).map((k) => String(k || "").trim()).filter(Boolean)
+      : [],
+  }));
 
   setSections(secs);
   setSelectedSectionIndex(0);
   setDirty(false);
+
+  console.log("[EntryViews] view.slug", view?.slug);
+  console.log("[EntryViews] cfg.sections", cfg?.sections);
+  console.log("[EntryViews] cfg.widgets", cfg?.widgets);
+  console.log("[EntryViews] view.sections", view?.sections);
+  console.log("[EntryViews] rawSections length", rawSections.length);
 };
 
 
@@ -675,7 +698,21 @@ const loadViewForEdit = (view) => {
 
 setViews(normalizedNewViews);
 
-    const newly = normalizedNewViews.find((v) => v.slug === slug) || null;
+    const matches = normalizedNewViews.filter((v) => v.slug === slug);
+
+    const newly =
+      matches.find((v) => {
+        const c = normalizeConfig(v?.config);
+        const secs =
+          (Array.isArray(c?.sections) && c.sections) ||
+          (Array.isArray(c?.widgets) && c.widgets) ||
+          (Array.isArray(v?.sections) && v.sections) ||
+          (Array.isArray(v?.widgets) && v.widgets) ||
+          (Array.isArray(c?.layout?.sections) && c.layout.sections) ||
+          [];
+        return secs.length > 0;
+      }) || matches[0] || null;
+
     if (newly) loadViewForEdit(newly);
 
 
