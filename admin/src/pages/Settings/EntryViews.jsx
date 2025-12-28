@@ -73,6 +73,20 @@ function normalizeFieldKey(f) {
   return "";
 }
 
+function normalizeConfig(cfg) {
+  if (!cfg) return {};
+  if (typeof cfg === "object") return cfg;
+  if (typeof cfg === "string") {
+    try {
+      return JSON.parse(cfg);
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+
 export default function EntryViews() {
   const params = useParams();
   const navigate = useNavigate();
@@ -96,6 +110,8 @@ export default function EntryViews() {
 
   // Form state for editing/creating a view
   const [currentLabel, setCurrentLabel] = useState("");
+  const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
+
   const [assignedRoles, setAssignedRoles] = useState([]);
   const [defaultRoles, setDefaultRoles] = useState([]);
   const [adminOnly, setAdminOnly] = useState(false);
@@ -127,24 +143,50 @@ export default function EntryViews() {
     const typeSlug = params.typeSlug || params.typeId;
     const viewSlug = params.viewSlug || "";
 
+    // No type selected: fully reset
     if (!typeSlug) {
       setStage("types");
       setSelectedTypeId("");
       setSelectedTypeUuid("");
       setActiveViewSlug("");
+      setSlugManuallyEdited(false);
+      setCurrentLabel("");
+      setSections([]);
+      setSelectedSectionIndex(0);
+      setAssignedRoles([]);
+      setDefaultRoles([]);
+      setAdminOnly(false);
+      setCore(EMPTY_CORE);
+      setDirty(false);
       return;
     }
 
     setSelectedTypeId(typeSlug);
 
-    if (viewSlug) {
-      setStage("edit");
-      setActiveViewSlug(viewSlug);
-    } else {
+    // No specific view selected: we're on the "views list" stage
+    if (!viewSlug) {
       setStage("views");
       setActiveViewSlug("");
+      setSlugManuallyEdited(false);
+      setDirty(false);
+      setCurrentLabel("");
+      setSections([]);
+      setSelectedSectionIndex(0);
+      setAssignedRoles([]);
+      setDefaultRoles([]);
+      setAdminOnly(false);
+      setCore(EMPTY_CORE);
+
+      return;
     }
+
+  
+    // View selected: editing
+    setStage("edit");
+    setActiveViewSlug(viewSlug);
+    // (optional) keep slugManuallyEdited as-is here; loadViewForEdit sets it true anyway
   }, [params.typeId, params.typeSlug, params.viewSlug]);
+
 
   // ---------------------------------------------------------------------------
   // Load content types + roles on mount
@@ -232,6 +274,7 @@ export default function EntryViews() {
   useEffect(() => {
     if (!selectedTypeId) return;
     let cancelled = false;
+    const viewSlugFromRoute = params.viewSlug || "";
 
     (async () => {
       try {
@@ -264,12 +307,18 @@ export default function EntryViews() {
 
         if (cancelled) return;
 
-        setViews(loadedViews);
+        const normalizedViews = loadedViews.map((v) => ({
+          ...v,
+          config: normalizeConfig(v?.config),
+        }));
 
-        if (activeViewSlug) {
-          const found = loadedViews.find((v) => v.slug === activeViewSlug);
-          if (found) loadViewForEdit(found);
-        } else {
+        setViews(normalizedViews);
+
+
+        if (viewSlugFromRoute) {
+            const found = normalizedViews.find((v) => v.slug === viewSlugFromRoute);
+            if (found) loadViewForEdit(found);
+          } else {
           setCurrentLabel("");
           setAssignedRoles(["ADMIN"]);
           setDefaultRoles([]);
@@ -291,58 +340,70 @@ export default function EntryViews() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedTypeId, activeViewSlug]);
+  }, [selectedTypeId, params.viewSlug]);
 
   // ---------------------------------------------------------------------------
   // Load a view into form state for editing
   // ---------------------------------------------------------------------------
-  const loadViewForEdit = (view) => {
-    if (!view) return;
+const loadViewForEdit = (view) => {
+  if (!view) return;
 
-    setActiveViewSlug(view.slug);
-    setCurrentLabel(view.label || view.slug);
+  setCurrentLabel(view.label || view.slug);
+  setActiveViewSlug(view.slug || "");
+  setSlugManuallyEdited(true); // existing views: treat slug as intentional
 
-    const cfgRoles = Array.isArray(view?.config?.roles)
-      ? view.config.roles.map((r) => String(r || "").toUpperCase())
-      : view.role
-      ? [String(view.role || "").toUpperCase()]
-      : [];
-    setAssignedRoles(cfgRoles);
+  const cfg = normalizeConfig(view?.config);
 
-    const cfgDefaults = Array.isArray(view?.config?.default_roles)
-      ? view.config.default_roles.map((r) => String(r || "").toUpperCase())
-      : [];
-    setDefaultRoles(cfgDefaults);
+    const cfgRoles = Array.isArray(cfg?.roles)
+        ? cfg.roles.map((r) => String(r || "").toUpperCase())
+        : view.role
+        ? [String(view.role || "").toUpperCase()]
+       : [];
+    // ✅ Always include ADMIN in UI roles
+    const rolesSet = new Set(cfgRoles);
+        rolesSet.add("ADMIN");
+        const rolesArray = Array.from(rolesSet);
 
-    const nonAdmin = cfgRoles.filter((r) => r.toUpperCase() !== "ADMIN");
-    setAdminOnly(nonAdmin.length === 0);
+  setAssignedRoles(rolesArray);
 
-    const loadedCore =
-      view?.config?.core && typeof view.config.core === "object"
-        ? { ...EMPTY_CORE, ...view.config.core }
-        : EMPTY_CORE;
-    setCore(loadedCore);
+  // If the only role is ADMIN, treat as admin-only
+  const nonAdmin = rolesArray.filter((r) => r !== "ADMIN");
+  setAdminOnly(nonAdmin.length === 0);
 
-    // ✅ CRITICAL FIX: normalize fields from legacy shapes (key/field/field_key)
-    const secs = Array.isArray(view?.config?.sections)
-      ? view.config.sections.map((s, idx) => ({
-          id: s.id || `widget-${idx + 1}`,
-          title: s.title || `Widget ${idx + 1}`,
-          description: s.description || "",
-          layout: s.layout || "one-column",
-          fields: Array.isArray(s.fields)
-            ? s.fields
-                .map(normalizeFieldKey)
-                .map((k) => String(k || "").trim())
-                .filter(Boolean)
-            : [],
-        }))
-      : [];
 
-    setSections(secs);
-    setSelectedSectionIndex(0);
-    setDirty(false);
-  };
+
+  const cfgDefaults = Array.isArray(cfg?.default_roles)
+    ? cfg.default_roles.map((r) => String(r || "").toUpperCase())
+    : [];
+  setDefaultRoles(cfgDefaults);
+  
+  const loadedCore =
+    cfg?.core && typeof cfg.core === "object"
+      ? { ...EMPTY_CORE, ...cfg.core }
+      : EMPTY_CORE;
+  setCore(loadedCore);
+
+  // ✅ normalize section fields even if they are objects like {field_key:"x"} or {field:"x"}
+  const secs = Array.isArray(cfg?.sections)
+    ? cfg.sections.map((s, idx) => ({
+        id: s.id || `widget-${idx + 1}`,
+        title: s.title || `Widget ${idx + 1}`,
+        description: s.description || "",
+        layout: s.layout || "one-column",
+        fields: Array.isArray(s.fields)
+          ? s.fields
+              .map(normalizeFieldKey)
+              .map((k) => String(k || "").trim())
+              .filter(Boolean)
+          : [],
+      }))
+    : [];
+
+  setSections(secs);
+  setSelectedSectionIndex(0);
+  setDirty(false);
+};
+
 
   // Derived: fields that are not yet assigned to any section
   const unassignedFields = useMemo(() => {
@@ -525,6 +586,8 @@ export default function EntryViews() {
     ]);
     setSelectedSectionIndex(0);
     setActiveViewSlug(slug);
+    setSlugManuallyEdited(false);
+
     setStage("edit");
     setDirty(true);
     navigate(`/admin/settings/entry-views/${selectedTypeId}/${slug}`);
@@ -541,16 +604,19 @@ export default function EntryViews() {
 
     const slug = slugify(activeViewSlug || currentLabel);
 
-    const dup = views.find(
-      (v) =>
-        v.slug &&
-        v.slug.toLowerCase() === slug.toLowerCase() &&
-        v.slug !== activeViewSlug
-    );
+    const dup = views.find((v) => {
+      if (!v.slug) return false;
+      const vSlug = v.slug.toLowerCase();
+      const next = slug.toLowerCase();
+      const current = (activeViewSlug || "").toLowerCase();
+      return vSlug === next && vSlug !== current;
+    });
+
     if (dup) {
       setError(`A view with the slug "${slug}" already exists.`);
       return;
     }
+
 
     const rolesSet = new Set(assignedRoles.map((r) => r.toUpperCase()));
     rolesSet.add("ADMIN");
@@ -601,10 +667,17 @@ export default function EntryViews() {
       );
       const raw = res?.data || res || [];
       const newViews = Array.isArray(raw) ? raw : raw.views || [];
-      setViews(newViews);
 
-      const newly = newViews.find((v) => v.slug === slug) || null;
-      if (newly) loadViewForEdit(newly);
+      const normalizedNewViews = newViews.map((v) => ({
+        ...v,
+        config: normalizeConfig(v?.config),
+      }));
+
+setViews(normalizedNewViews);
+
+    const newly = normalizedNewViews.find((v) => v.slug === slug) || null;
+    if (newly) loadViewForEdit(newly);
+
 
       setDirty(false);
       setSaveMessage("View saved.");
@@ -627,8 +700,11 @@ export default function EntryViews() {
         `/api/content-types/${typeKeyForMutations}/editor-view/${activeViewSlug}`
       );
 
-      const remaining = views.filter((v) => v.slug !== activeViewSlug);
-      setViews(remaining);
+      const remaining = views
+        .filter((v) => v.slug !== activeViewSlug)
+        .map((v) => ({ ...v, config: normalizeConfig(v?.config) }));
+
+  setViews(remaining);
 
       setActiveViewSlug("");
       setCurrentLabel("");
@@ -903,16 +979,24 @@ export default function EntryViews() {
           <div className="su-card">
             <div className="su-card-body su-space-y-md">
               <div>
-                <label className="su-form-label">Label</label>
-                <input
-                  className="su-input"
-                  value={currentLabel}
-                  onChange={(e) => {
-                    setCurrentLabel(e.target.value);
-                    setDirty(true);
-                  }}
-                />
-              </div>
+              <label className="su-form-label">Label</label>
+              <input
+                className="su-input"
+                value={currentLabel}
+           onChange={(e) => {
+             const nextLabel = e.target.value;
+             setCurrentLabel(nextLabel);
+             setDirty(true);
+
+             // ✅ auto-generate slug ONLY if slug is empty and user hasn't manually edited it
+             if (!slugManuallyEdited && !activeViewSlug.trim()) {
+               setActiveViewSlug(slugify(nextLabel));
+             }
+           }}
+
+              />
+          </div>
+
 
               <div>
                 <label className="su-form-label">Slug</label>
@@ -920,11 +1004,35 @@ export default function EntryViews() {
                   className="su-input"
                   value={activeViewSlug}
                   onChange={(e) => {
-                    setActiveViewSlug(slugify(e.target.value));
-                    setDirty(true);
-                  }}
+                  const nextSlug = slugify(e.target.value);
+
+                  setActiveViewSlug(nextSlug);
+                  setDirty(true);
+
+                  // ✅ if user types anything, treat as manually edited
+                  // ✅ if they clear it, allow auto-sync again
+                  setSlugManuallyEdited(!!nextSlug);
+                }}
+
+                  onBlur={(e) => {
+                   const nextSlug = slugify(e.target.value);
+                    if (!nextSlug) {
+                     navigate(`/admin/settings/entry-views/${selectedTypeId}`, { replace: true });
+                     return;
+                   }
+
+                  
+                   setActiveViewSlug(nextSlug);
+
+                   if (!selectedTypeId) return;
+                   navigate(`/admin/settings/entry-views/${selectedTypeId}/${nextSlug}`, {
+                     replace: true,
+                   });
+                 }}
+
                 />
               </div>
+
 
               {/* Core behavior */}
               <div className="su-card" style={{ background: "var(--su-surface)" }}>
