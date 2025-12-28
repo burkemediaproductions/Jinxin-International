@@ -86,6 +86,49 @@ function normalizeConfig(cfg) {
   return {};
 }
 
+function getRawSectionsFromView(view) {
+  const cfg = normalizeConfig(view?.config);
+
+  return (
+    (Array.isArray(cfg?.sections) && cfg.sections) ||
+    (Array.isArray(cfg?.widgets) && cfg.widgets) ||
+    (Array.isArray(view?.sections) && view.sections) ||
+    (Array.isArray(view?.widgets) && view.widgets) ||
+    (Array.isArray(cfg?.layout?.sections) && cfg.layout.sections) ||
+    []
+  );
+}
+
+function normalizeSections(rawSections) {
+  return (rawSections || []).map((s, idx) => ({
+    id: s.id || `widget-${idx + 1}`,
+    title: s.title || `Widget ${idx + 1}`,
+    description: s.description || "",
+    layout: s.layout || "one-column",
+    fields: Array.isArray(s.fields)
+      ? s.fields
+          .map(normalizeFieldKey)
+          .map((k) => String(k || "").trim())
+          .filter(Boolean)
+      : [],
+  }));
+}
+
+function pickBestViewBySlug(views, slug) {
+  const target = String(slug || "").toLowerCase();
+  const matches = (views || []).filter(
+    (v) => String(v?.slug || "").toLowerCase() === target
+  );
+
+  if (!matches.length) return null;
+
+  // Prefer the one that actually contains sections
+  const withSections =
+    matches.find((v) => getRawSectionsFromView(v).length > 0) || matches[0];
+
+  return withSections;
+}
+
 
 export default function EntryViews() {
   const params = useParams();
@@ -316,23 +359,19 @@ export default function EntryViews() {
 
 
         if (viewSlugFromRoute) {
-          const matches = normalizedViews.filter((v) => v.slug === viewSlugFromRoute);
-
-          const found =
-            matches.find((v) => {
-            const c = normalizeConfig(v?.config);
-            const secs =
-                (Array.isArray(c?.sections) && c.sections) ||
-                (Array.isArray(c?.widgets) && c.widgets) ||
-                (Array.isArray(v?.sections) && v.sections) ||
-                (Array.isArray(v?.widgets) && v.widgets) ||
-                (Array.isArray(c?.layout?.sections) && c.layout.sections) ||
-              [];
-            return secs.length > 0;
-          }) || matches[0];
-
-        if (found) loadViewForEdit(found);
-    } else {
+         const found = pickBestViewBySlug(normalizedViews, viewSlugFromRoute);
+         if (found) loadViewForEdit(found);
+       } else {
+         setCurrentLabel("");
+         setAssignedRoles(["ADMIN"]);
+         setDefaultRoles([]);
+         setAdminOnly(false);
+         setCore(EMPTY_CORE);
+         setSections([]);
+         setSelectedSectionIndex(0);
+        setDirty(false);
+        }
+         else {
           setCurrentLabel("");
           setAssignedRoles(["ADMIN"]);
           setDefaultRoles([]);
@@ -368,64 +407,53 @@ const loadViewForEdit = (view) => {
 
   const cfg = normalizeConfig(view?.config);
 
-    const cfgRoles = Array.isArray(cfg?.roles)
-        ? cfg.roles.map((r) => String(r || "").toUpperCase())
-        : view.role
-        ? [String(view.role || "").toUpperCase()]
-       : [];
-    // ✅ Always include ADMIN in UI roles
-    const rolesSet = new Set(cfgRoles);
-        rolesSet.add("ADMIN");
-        const rolesArray = Array.from(rolesSet);
+  // Roles
+  const cfgRoles = Array.isArray(cfg?.roles)
+    ? cfg.roles.map((r) => String(r || "").toUpperCase())
+    : view.role
+    ? [String(view.role || "").toUpperCase()]
+    : [];
+
+  const rolesSet = new Set(cfgRoles);
+  rolesSet.add("ADMIN");
+  const rolesArray = Array.from(rolesSet);
 
   setAssignedRoles(rolesArray);
 
-  // If the only role is ADMIN, treat as admin-only
   const nonAdmin = rolesArray.filter((r) => r !== "ADMIN");
   setAdminOnly(nonAdmin.length === 0);
-
-
 
   const cfgDefaults = Array.isArray(cfg?.default_roles)
     ? cfg.default_roles.map((r) => String(r || "").toUpperCase())
     : [];
   setDefaultRoles(cfgDefaults);
-  
+
+  // Core
   const loadedCore =
     cfg?.core && typeof cfg.core === "object"
       ? { ...EMPTY_CORE, ...cfg.core }
       : EMPTY_CORE;
   setCore(loadedCore);
 
-  // ✅ normalize section fields even if they are objects like {field_key:"x"} or {field:"x"}
-  const rawSections =
-  (Array.isArray(cfg?.sections) && cfg.sections) ||
-  (Array.isArray(cfg?.widgets) && cfg.widgets) ||
-  (Array.isArray(view?.sections) && view.sections) ||
-  (Array.isArray(view?.widgets) && view.widgets) ||
-  (Array.isArray(cfg?.layout?.sections) && cfg.layout.sections) ||
-  [];
-
-  const secs = rawSections.map((s, idx) => ({
-    id: s.id || `widget-${idx + 1}`,
-    title: s.title || `Widget ${idx + 1}`,
-    description: s.description || "",
-    layout: s.layout || "one-column",
-    fields: Array.isArray(s.fields)
-      ? s.fields.map(normalizeFieldKey).map((k) => String(k || "").trim()).filter(Boolean)
-      : [],
-  }));
+  // Sections/widgets
+  const rawSections = getRawSectionsFromView(view);
+  const secs = normalizeSections(rawSections);
 
   setSections(secs);
   setSelectedSectionIndex(0);
   setDirty(false);
 
+  // 🔎 Debug that actually helps
   console.log("[EntryViews] view.slug", view?.slug);
-  console.log("[EntryViews] cfg.sections", cfg?.sections);
-  console.log("[EntryViews] cfg.widgets", cfg?.widgets);
-  console.log("[EntryViews] view.sections", view?.sections);
   console.log("[EntryViews] rawSections length", rawSections.length);
+  console.log("[EntryViews] cfg keys", Object.keys(cfg || {}));
+  console.log("[EntryViews] cfg.sections?", !!cfg?.sections);
+  console.log("[EntryViews] cfg.widgets?", !!cfg?.widgets);
+  console.log("[EntryViews] cfg.layout.sections?", !!cfg?.layout?.sections);
+  console.log("[EntryViews] view.sections?", !!view?.sections);
+  console.log("[EntryViews] view.widgets?", !!view?.widgets);
 };
+
 
 
   // Derived: fields that are not yet assigned to any section
@@ -697,6 +725,10 @@ const loadViewForEdit = (view) => {
       }));
 
 setViews(normalizedNewViews);
+
+const newly = pickBestViewBySlug(normalizedNewViews, slug);
+if (newly) loadViewForEdit(newly);
+
 
     const matches = normalizedNewViews.filter((v) => v.slug === slug);
 
