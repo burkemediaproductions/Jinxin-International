@@ -359,29 +359,24 @@ export default function EntryViews() {
 
 
         if (viewSlugFromRoute) {
-         const found = pickBestViewBySlug(normalizedViews, viewSlugFromRoute);
-         if (found) loadViewForEdit(found);
-       } else {
-         setCurrentLabel("");
-         setAssignedRoles(["ADMIN"]);
-         setDefaultRoles([]);
-         setAdminOnly(false);
-         setCore(EMPTY_CORE);
-         setSections([]);
-         setSelectedSectionIndex(0);
-        setDirty(false);
-        }
-         else {
-          setCurrentLabel("");
-          setAssignedRoles(["ADMIN"]);
-          setDefaultRoles([]);
-          setAdminOnly(false);
-          setCore(EMPTY_CORE);
-          setSections([]);
-          setSelectedSectionIndex(0);
-          setDirty(false);
-        }
-      } catch (err) {
+  const found = pickBestViewBySlug(normalizedViews, viewSlugFromRoute);
+  if (found) {
+    loadViewForEdit(found);
+  } else {
+    // slug in URL doesn't exist anymore, go back to views list
+    navigate(`/admin/settings/entry-views/${selectedTypeId}`, { replace: true });
+  }
+} else {
+  setCurrentLabel("");
+  setAssignedRoles(["ADMIN"]);
+  setDefaultRoles([]);
+  setAdminOnly(false);
+  setCore(EMPTY_CORE);
+  setSections([]);
+  setSelectedSectionIndex(0);
+  setDirty(false);
+}
+ catch (err) {
         console.error(err);
         if (!cancelled) setError("Failed to load editor views");
       } finally {
@@ -728,24 +723,6 @@ setViews(normalizedNewViews);
 
 const newly = pickBestViewBySlug(normalizedNewViews, slug);
 if (newly) loadViewForEdit(newly);
-
-
-    const matches = normalizedNewViews.filter((v) => v.slug === slug);
-
-    const newly =
-      matches.find((v) => {
-        const c = normalizeConfig(v?.config);
-        const secs =
-          (Array.isArray(c?.sections) && c.sections) ||
-          (Array.isArray(c?.widgets) && c.widgets) ||
-          (Array.isArray(v?.sections) && v.sections) ||
-          (Array.isArray(v?.widgets) && v.widgets) ||
-          (Array.isArray(c?.layout?.sections) && c.layout.sections) ||
-          [];
-        return secs.length > 0;
-      }) || matches[0] || null;
-
-    if (newly) loadViewForEdit(newly);
 
 
       setDirty(false);
