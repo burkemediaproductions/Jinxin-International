@@ -13,6 +13,19 @@ function slugify(value) {
     .replace(/^-+|-+$/g, "");
 }
 
+function normalizeConfig(cfg) {
+  if (!cfg) return {};
+  if (typeof cfg === "object") return cfg;
+  if (typeof cfg === "string") {
+    try {
+      return JSON.parse(cfg);
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
 function getRoleFromToken() {
   try {
     const token =
@@ -267,6 +280,20 @@ export default function Editor() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
+  // ✅ only depend on the string value, not the searchParams object
+  const viewParam = searchParams.get("view") || "";
+  const setViewParamInUrl = useCallback(
+    (nextView) => {
+      const next = new URLSearchParams(searchParams);
+      if (nextView) next.set("view", nextView);
+      else next.delete("view");
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams]
+  );
+
+
+
   const roleUpper = useMemo(() => {
     const r = getRoleFromToken();
     return String(r || "ADMIN").toUpperCase();
@@ -353,10 +380,15 @@ export default function Editor() {
 
         let fullCt;
         try {
-          const fullRes = await api.get(`/api/content-types/${basicCt.id}?all=true`);
+          const fullRes = await api.get(
+            `/api/content-types/${basicCt.id}?all=true`
+          );
           fullCt = fullRes?.data || fullRes || basicCt;
         } catch (e) {
-          console.warn("Failed to load full content type, falling back to basic", e);
+          console.warn(
+            "Failed to load full content type, falling back to basic",
+            e
+          );
           fullCt = basicCt;
         }
 
@@ -368,13 +400,14 @@ export default function Editor() {
         if (fullCt && fullCt.id) {
           try {
             const vRes = await api.get(
-              `/api/content-types/${fullCt.id}/editor-views?role=${encodeURIComponent(
-                roleUpper
-              )}&_=${Date.now()}`
+              `/api/content-types/${
+                fullCt.id
+              }/editor-views?role=${encodeURIComponent(roleUpper)}&_=${Date.now()}`
             );
             const rawViews = vRes?.data ?? vRes;
             if (Array.isArray(rawViews)) views = rawViews;
-            else if (rawViews && Array.isArray(rawViews.views)) views = rawViews.views;
+            else if (rawViews && Array.isArray(rawViews.views))
+              views = rawViews.views;
           } catch (err) {
             console.warn(
               "[Editor] Failed to load editor views for type; falling back to auto layout",
@@ -388,10 +421,9 @@ export default function Editor() {
         // choose view
         let chosenView = null;
         if (views && views.length) {
-          const viewFromUrl = searchParams.get("view") || "";
           const defaultView =
             views.find((v) => {
-              const cfg = v.config || {};
+              const cfg = normalizeConfig(v.config || {});
               const dRoles = Array.isArray(cfg.default_roles)
                 ? cfg.default_roles.map((r) => String(r || "").toUpperCase())
                 : [];
@@ -399,8 +431,8 @@ export default function Editor() {
               return !!v.is_default;
             }) || views[0];
 
-          if (viewFromUrl) {
-            const fromUrl = views.find((v) => v.slug === viewFromUrl);
+          if (viewParam) {
+            const fromUrl = views.find((v) => v.slug === viewParam);
             chosenView = fromUrl || defaultView;
           } else {
             chosenView = defaultView;
@@ -411,31 +443,32 @@ export default function Editor() {
           if (!cancelled) {
             setActiveViewSlug(chosenView.slug);
             setActiveViewLabel(
-              chosenView.label || chosenView.name || chosenView.title || chosenView.slug
+              chosenView.label ||
+                chosenView.name ||
+                chosenView.title ||
+                chosenView.slug
             );
-            setEditorViewConfig(chosenView.config || {});
+            setEditorViewConfig(normalizeConfig(chosenView.config));
           }
-          const currentViewParam = searchParams.get("view");
-          if (currentViewParam !== chosenView.slug) {
-            const next = new URLSearchParams(searchParams);
-            next.set("view", chosenView.slug);
-            setSearchParams(next);
-          }
+
+          // ✅ keep URL in sync, but only when needed
+          if (viewParam !== chosenView.slug) {
+           setViewParamInUrl(chosenView.slug);
+         }
         } else {
           if (!cancelled) {
             setActiveViewSlug("");
             setActiveViewLabel("");
             setEditorViewConfig({});
           }
-          if (searchParams.get("view")) {
-            const next = new URLSearchParams(searchParams);
-            next.delete("view");
-            setSearchParams(next);
+          if (viewParam) {
+            setViewParamInUrl("");
           }
         }
       } catch (err) {
         console.error("Failed to load content types", err);
-        if (!cancelled) setError(err.message || "Failed to load content type");
+        if (!cancelled)
+          setError(err.message || "Failed to load content type");
       } finally {
         if (!cancelled) setLoadingType(false);
       }
@@ -445,9 +478,8 @@ export default function Editor() {
     return () => {
       cancelled = true;
     };
-    // IMPORTANT: include roleUpper + searchParams so view selection reloads correctly
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [typeSlug, roleUpper, searchParams]);
+  }, [typeSlug, roleUpper, viewParam]);
 
   const sections = useMemo(
     () => buildLayoutFromView(contentType, editorViewConfig),
@@ -536,7 +568,8 @@ export default function Editor() {
     return () => {
       cancelled = true;
     };
-  }, [contentType?.id, contentType?.fields]);
+    // ✅ avoid refetch loops from array identity churn
+  }, [contentType?.id]);
 
   // ---------------------------------------------------------------------------
   // Load existing entry (edit mode only)
@@ -663,7 +696,8 @@ export default function Editor() {
       return;
     }
 
-    const finalSlug = (slug || "").trim() || slugify(computedTitle);
+    // ✅ always slugify user-provided slug, or derive from title
+    const finalSlug = slugify((slug || "").trim() || computedTitle);
 
     try {
       setSaving(true);
@@ -778,7 +812,10 @@ export default function Editor() {
   // ---------------------------------------------------------------------------
   // Preview helpers
   // ---------------------------------------------------------------------------
-  const previewData = useMemo(() => ({ ...data, title, slug, status }), [data, title, slug, status]);
+  const previewData = useMemo(
+    () => ({ ...data, title, slug, status }),
+    [data, title, slug, status]
+  );
 
   const fieldDefByKey = useMemo(() => {
     const map = {};
@@ -790,7 +827,11 @@ export default function Editor() {
     return map;
   }, [contentType]);
 
-  const customFieldEntries = useMemo(() => Object.entries(data || {}), [data]);
+  // ✅ hide system-ish keys from the preview list
+  const customFieldEntries = useMemo(() => {
+    const SYSTEM = new Set(["title", "slug", "status", "_title", "_slug", "_status"]);
+    return Object.entries(data || {}).filter(([k]) => !SYSTEM.has(k));
+  }, [data]);
 
   function userLabelFromResolved(user, display) {
     if (!user) return "";
@@ -803,10 +844,12 @@ export default function Editor() {
 
   function prettyValue(v) {
     if (v === null || v === undefined) return "";
-    if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return String(v);
+    if (typeof v === "string" || typeof v === "number" || typeof v === "boolean")
+      return String(v);
     if (Array.isArray(v)) {
       if (!v.length) return "";
-      if (v.every((x) => typeof x === "string" || typeof x === "number")) return v.join(", ");
+      if (v.every((x) => typeof x === "string" || typeof x === "number"))
+        return v.join(", ");
       return JSON.stringify(v);
     }
     if (typeof v === "object") {
@@ -861,7 +904,7 @@ export default function Editor() {
             <div className="su-card-body su-flex su-flex-wrap su-gap-sm su-items-center">
               <span className="su-text-sm su-text-muted">Views:</span>
               {editorViews.map((v) => {
-                const cfg = v.config || {};
+                const cfg = normalizeConfig(v.config || {});
                 const dRoles = Array.isArray(cfg.default_roles)
                   ? cfg.default_roles.map((r) => String(r || "").toUpperCase())
                   : [];
@@ -874,12 +917,8 @@ export default function Editor() {
                     className={"su-chip" + (v.slug === activeViewSlug ? " su-chip--active" : "")}
                     onClick={() => {
                       if (v.slug === activeViewSlug) return;
-                      setActiveViewSlug(v.slug);
-                      setActiveViewLabel(v.label || v.name || v.title || v.slug);
-                      setEditorViewConfig(v.config || {});
-                      const next = new URLSearchParams(searchParams);
-                      next.set("view", v.slug);
-                      setSearchParams(next);
+                      // ✅ drive selection via URL param; loader effect will apply config
+                      setViewParamInUrl(v.slug);
                     }}
                   >
                     {v.label || v.name || v.title || v.slug}
@@ -947,7 +986,8 @@ export default function Editor() {
                 <input
                   className="su-input"
                   value={slug}
-                  onChange={(e) => setSlug(e.target.value)}
+                  // ✅ keep slugs clean as the user types
+                  onChange={(e) => setSlug(slugify(e.target.value))}
                   placeholder={slugify(title || "my-entry")}
                 />
               </label>
@@ -956,7 +996,11 @@ export default function Editor() {
             {!coreCfg.hideStatus && (
               <label style={{ fontSize: 13 }}>
                 {coreCfg.statusLabel || "Status"}
-                <select className="su-select" value={status} onChange={(e) => setStatus(e.target.value)}>
+                <select
+                  className="su-select"
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value)}
+                >
                   <option value="draft">Draft</option>
                   <option value="published">Published</option>
                   <option value="archived">Archived</option>
@@ -976,7 +1020,9 @@ export default function Editor() {
               }}
             >
               <h3 style={{ margin: 0, fontSize: 14 }}>Fields</h3>
-              <span style={{ fontSize: 11, opacity: 0.7 }}>Powered by QuickBuilder &amp; editor views.</span>
+              <span style={{ fontSize: 11, opacity: 0.7 }}>
+                Powered by QuickBuilder &amp; editor views.
+              </span>
             </div>
 
             {!sections.length && (
@@ -997,7 +1043,9 @@ export default function Editor() {
                 }}
               >
                 {section.title && (
-                  <div style={{ marginBottom: 8, fontSize: 13, fontWeight: 600 }}>{section.title}</div>
+                  <div style={{ marginBottom: 8, fontSize: 13, fontWeight: 600 }}>
+                    {section.title}
+                  </div>
                 )}
 
                 <div
@@ -1033,7 +1081,9 @@ export default function Editor() {
                           />
 
                           {(def.help || def.description) && (
-                            <div style={{ fontSize: 12, opacity: 0.7 }}>{def.help || def.description}</div>
+                            <div style={{ fontSize: 12, opacity: 0.7 }}>
+                              {def.help || def.description}
+                            </div>
                           )}
                         </div>
                       </div>
@@ -1083,7 +1133,9 @@ export default function Editor() {
             }}
           >
             <div style={{ marginBottom: 8 }}>
-              <div style={{ fontSize: 16, fontWeight: 600 }}>{title || "(untitled entry)"}</div>
+              <div style={{ fontSize: 16, fontWeight: 600 }}>
+                {title || "(untitled entry)"}
+              </div>
               <div style={{ fontSize: 12, opacity: 0.7 }}>
                 /{slug || slugify(title || "my-entry")} ·{" "}
                 <span style={{ textTransform: "uppercase" }}>{status}</span>
@@ -1091,7 +1143,9 @@ export default function Editor() {
             </div>
 
             <div style={{ borderTop: "1px solid var(--su-border)", paddingTop: 8 }}>
-              {customFieldEntries.length === 0 && <p style={{ fontSize: 12, opacity: 0.7 }}>No fields yet.</p>}
+              {customFieldEntries.length === 0 && (
+                <p style={{ fontSize: 12, opacity: 0.7 }}>No fields yet.</p>
+              )}
 
               {customFieldEntries.map(([k, v]) => (
                 <div
