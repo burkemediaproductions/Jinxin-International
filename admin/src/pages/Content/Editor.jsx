@@ -150,23 +150,6 @@ if (!sections.length && fields.length && !hasAnyViewSectionsConfig) {
 return sections;
 
 
- // Fallback: only when there is NO view config at all.
-// If a view exists but contains only built-ins (or invalid keys),
-// we should NOT fall back to "all fields" because that looks like the wrong view loaded.
-const hasAnyViewSectionsConfig = Array.isArray(cfgSections);
-
-if (!sections.length && fields.length && !hasAnyViewSectionsConfig) {
-  sections.push({
-    id: "main",
-    title: "Fields",
-    columns: 1,
-    rows: fields.map((def) => ({ def, width: 1 })),
-  });
-}
-
-  return sections;
-}
-
 // ✅ helper: normalize field config across legacy config/options shapes
 function getFieldConfig(def) {
   return (
