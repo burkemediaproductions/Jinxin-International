@@ -6,6 +6,59 @@ import { useSettings } from '../../context/SettingsContext';
 // ✅ NEW: list/widget display helper (handles repeaters, nested repeaters, etc.)
 import { formatFieldValueForList } from '../../components/FieldInput';
 
+
+// ---------------------------------------------------------------------------
+// Title template helpers (mirrors Entry Editor view logic)
+// ---------------------------------------------------------------------------
+function getByPath(obj, path) {
+  if (!path) return undefined;
+  const parts = String(path)
+    .split('.')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  let cur = obj;
+  for (const p of parts) {
+    if (cur == null) return undefined;
+    cur = cur[p];
+  }
+  return cur;
+}
+
+function asPrettyInline(value) {
+  if (value == null) return '';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(asPrettyInline).filter(Boolean).join(', ');
+  }
+  if (typeof value === 'object') {
+    // common name-field shape
+    const first = value.first || '';
+    const last = value.last || '';
+    if (first || last) return `${first} ${last}`.trim();
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
+}
+
+function deriveTitleFromTemplate(template, data) {
+  const tpl = String(template || '');
+  if (!tpl.trim()) return '';
+  const out = tpl.replace(/\{([^}]+)\}/g, (_, tokenRaw) => {
+    const token = String(tokenRaw || '').trim();
+    if (!token) return '';
+    const val = getByPath(data, token);
+    return asPrettyInline(val);
+  });
+  return out.replace(/\s+/g, ' ').trim();
+}
+
 // Built-in columns that exist on every entry coming from the API
 const BUILTIN_KEYS = ['title', 'slug', 'status', 'created_at', 'updated_at'];
 
@@ -390,12 +443,23 @@ export default function TypeList() {
   function renderCell(row, key) {
     let value;
     if (key === 'title') {
-      value =
-        row.title ||
-        row.name ||
-        row.slug ||
-        (row.data && (row.data.title || row.data.name || row.data.slug)) ||
-        '(untitled)';
+      const tCfg = activeView?.config?.title && typeof activeView.config.title === 'object' ? activeView.config.title : {};
+      const mode = String(tCfg.mode || 'manual');
+
+      if (mode === 'template' && tCfg.template) {
+        value = deriveTitleFromTemplate(tCfg.template, row.data || row) || '(untitled)';
+      } else if (mode === 'field' && tCfg.fieldKey) {
+        const fk = String(tCfg.fieldKey);
+        const raw = (row.data && fk in row.data) ? row.data[fk] : row[fk];
+        value = asPrettyInline(raw) || '(untitled)';
+      } else {
+        value =
+          row.title ||
+          row.name ||
+          row.slug ||
+          (row.data && (row.data.title || row.data.name || row.data.slug)) ||
+          '(untitled)';
+      }
     } else if (key in row) {
       value = row[key];
     } else if (row.data && key in row.data) {
@@ -504,6 +568,11 @@ export default function TypeList() {
     map.status = 'Status';
     map.created_at = 'Created';
     map.updated_at = 'Updated';
+
+    const tCfg = activeView?.config?.title;
+    if (tCfg && typeof tCfg === 'object' && tCfg.label) {
+      map.title = String(tCfg.label);
+    }
 
     const ctFields = Array.isArray(contentType?.fields) ? contentType.fields : [];
     for (const f of ctFields) {
