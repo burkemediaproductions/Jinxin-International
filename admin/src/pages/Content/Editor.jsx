@@ -134,15 +134,19 @@ function buildLayoutFromView(contentType, viewConfig) {
     }
   }
 
-  // Fallback: single section with all custom fields. Do not include built-ins
-  if (!sections.length && fields.length) {
-    sections.push({
-      id: "main",
-      title: "Fields",
-      columns: 1,
-      rows: fields.map((def) => ({ def, width: 1 })),
-    });
-  }
+ // Fallback: only when there is NO view config at all.
+// If a view exists but contains only built-ins (or invalid keys),
+// we should NOT fall back to "all fields" because that looks like the wrong view loaded.
+const hasAnyViewSectionsConfig = Array.isArray(cfgSections);
+
+if (!sections.length && fields.length && !hasAnyViewSectionsConfig) {
+  sections.push({
+    id: "main",
+    title: "Fields",
+    columns: 1,
+    rows: fields.map((def) => ({ def, width: 1 })),
+  });
+}
 
   return sections;
 }
