@@ -36,7 +36,7 @@ async function resolveContentTypeId(idOrSlug) {
 
 async function getEditorViewsForType(contentTypeId) {
   // Returns all editor view rows for a content type.  Caller should
-  // perform role filtering client‑side.  Each row includes id, slug,
+  // perform role filtering client-side.  Each row includes id, slug,
   // label, role, is_default and config.
   const { rows } = await pool.query(
     `SELECT id, content_type_id, slug, label, role, is_default, config
@@ -107,13 +107,26 @@ router.get(
  * PUT /api/content-types/:id/editor-view
  * Create or update a single editor view definition for a type + roles.
  *
- * Body:
+ * Body (legacy/flat):
  *   {
  *     slug: string,
  *     label: string,
- *     roles: ["ADMIN", "EDITOR", ...],
+ *     roles: ["ADMIN", ...],
  *     default_roles: ["ADMIN", ...],
+ *     core: {...},
  *     sections: [ { id, title, description, layout, fields: [] }, ... ]
+ *   }
+ *
+ * Body (new/nested):
+ *   {
+ *     slug: string,
+ *     label: string,
+ *     config: {
+ *       roles: [...],
+ *       default_roles: [...],
+ *       core: {...},
+ *       sections: [...]
+ *     }
  *   }
  *
  * NOTE: :id may be either the UUID primary key or the content type slug.
@@ -123,36 +136,71 @@ router.put(
   checkPermission('manage_content_types'),
   async (req, res) => {
     const { id: idOrSlug } = req.params;
-    let { slug, label, roles, default_roles, sections } = req.body || {};
+
+    // ✅ Back-compat: accept either flat payload or nested config payload
+    const body = req.body || {};
+    const incomingConfig = body.config || {};
+
+    const slug = body.slug;
+    const label = body.label;
+
+    const rolesRaw =
+      incomingConfig.roles ?? body.roles ?? null;
+
+    const defaultRolesRaw =
+      incomingConfig.default_roles ?? body.default_roles ?? [];
+
+    const sectionsRaw =
+      incomingConfig.sections ?? body.sections ?? [];
+
+    const coreRaw =
+      incomingConfig.core ?? body.core ?? {};
+
     // Basic validation
     if (!slug || typeof slug !== 'string') {
       return res.status(400).json({ error: 'slug is required' });
     }
+
     // Normalize roles
     let roleList;
-    if (Array.isArray(roles) && roles.length > 0) {
-      roleList = roles.map((r) => String(r || '').toUpperCase());
+    if (Array.isArray(rolesRaw) && rolesRaw.length > 0) {
+      roleList = rolesRaw.map((r) => String(r || '').toUpperCase());
     } else {
       const fallbackRole = req.user?.role || 'ADMIN';
       roleList = [String(fallbackRole).toUpperCase()];
     }
+
     // Normalize default roles
     let defaultRoleList;
-    if (Array.isArray(default_roles)) {
-      defaultRoleList = default_roles.map((r) => String(r || '').toUpperCase());
+    if (Array.isArray(defaultRolesRaw)) {
+      defaultRoleList = defaultRolesRaw.map((r) => String(r || '').toUpperCase());
     } else {
       defaultRoleList = [];
     }
+
     // Ensure default roles are subset of roles
     defaultRoleList = defaultRoleList.filter((r) => roleList.includes(r));
+
     // Default label
-    const safeLabel = label && typeof label === 'string' && label.trim() ? label.trim() : slug;
+    const safeLabel =
+      label && typeof label === 'string' && label.trim()
+        ? label.trim()
+        : slug;
+
+    // Normalize sections + core
+    const normalizedSections = Array.isArray(sectionsRaw) ? sectionsRaw : [];
+    const normalizedCore =
+      coreRaw && typeof coreRaw === 'object' && !Array.isArray(coreRaw)
+        ? coreRaw
+        : {};
+
     // Resolve content type
     try {
       const contentTypeId = await resolveContentTypeId(idOrSlug);
       if (!contentTypeId) {
         return res.status(404).json({ error: 'Content type not found' });
       }
+
       // Start transaction
       const client = await pool.connect();
       try {
@@ -162,8 +210,6 @@ router.put(
         // Ensure there is only one default editor view per role.
         // If any roles are designated as default in this request, clear those
         // default assignments from all other views for the same content type.
-        // This mirrors the behaviour of list views, so that default roles
-        // cannot be assigned across multiple editor views simultaneously.
         if (defaultRoleList.length > 0) {
           for (const dRole of defaultRoleList) {
             await client.query(
@@ -183,29 +229,30 @@ router.put(
         }
 
         // Choose a legacy role value to store in the legacy `role` column.
-        // We intentionally avoid using the first role from `roleList` to
-        // circumvent unique constraints on (content_type_id, role).  Instead,
-        // we use the slug as a stand‑in, ensuring uniqueness per view while
-        // preserving the true roles in config.roles.  This mirrors the
-        // updated list views API behaviour where the `role` column is no
-        // longer used for filtering.
         const legacyRoleValue = slug.toUpperCase();
         const isDefaultRow = defaultRoleList.length > 0;
+
+        // ✅ Persist full config including core + sections
         const newConfig = {
           roles: roleList,
           default_roles: defaultRoleList,
-          sections: Array.isArray(sections) ? sections : []
+          core: normalizedCore,
+          sections: normalizedSections,
         };
+
         // Check for existing row(s) with same slug
         const { rows: existingRows } = await client.query(
           `SELECT id FROM entry_editor_views
              WHERE content_type_id = $1 AND slug = $2`,
           [contentTypeId, slug]
         );
+
         let savedRow;
+
         if (existingRows.length > 0) {
           // Update first row, remove duplicates if necessary
           const firstId = existingRows[0].id;
+
           if (existingRows.length > 1) {
             const dupIds = existingRows.slice(1).map((r) => r.id);
             await client.query(
@@ -213,6 +260,7 @@ router.put(
               [dupIds]
             );
           }
+
           const { rows: updateRows } = await client.query(
             `UPDATE entry_editor_views
                  SET label = $1,
@@ -224,6 +272,7 @@ router.put(
                RETURNING id, content_type_id, slug, label, role, is_default, config`,
             [safeLabel, legacyRoleValue, isDefaultRow, newConfig, firstId]
           );
+
           savedRow = updateRows[0];
         } else {
           const { rows: insertRows } = await client.query(
@@ -233,8 +282,10 @@ router.put(
              RETURNING id, content_type_id, slug, label, role, is_default, config`,
             [contentTypeId, slug, safeLabel, legacyRoleValue, isDefaultRow, newConfig]
           );
+
           savedRow = insertRows[0];
         }
+
         await client.query('COMMIT');
         return res.json({ view: savedRow });
       } catch (err) {
