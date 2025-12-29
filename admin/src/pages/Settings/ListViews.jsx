@@ -60,6 +60,12 @@ export default function ListViewsSettings() {
   const [isDefault, setIsDefault] = useState(false);
   const [columns, setColumns] = useState([]);
 
+  // Row title configuration (optional)
+  const [titleLabel, setTitleLabel] = useState('Title');
+  const [titleMode, setTitleMode] = useState('manual'); // manual | field | template
+  const [titleFieldKey, setTitleFieldKey] = useState('');
+  const [titleTemplate, setTitleTemplate] = useState('');
+
   const [availableFields, setAvailableFields] = useState([]);
 
   const [loading, setLoading] = useState(false);
@@ -255,6 +261,10 @@ export default function ListViewsSettings() {
           setCurrentLabel("Default list");
           setIsDefault(true);
           setColumns(defaultCols);
+      setTitleLabel('Title');
+      setTitleMode('manual');
+      setTitleFieldKey('');
+      setTitleTemplate('');
           setDirty(false);
         } else {
           // Pick default or first view
@@ -292,6 +302,13 @@ export default function ListViewsSettings() {
             ];
             setColumns(defaultCols);
           }
+
+          // Title config (optional)
+          const tCfg = (def.config && def.config.title) || {};
+          setTitleLabel(String(tCfg.label || "Title"));
+          setTitleMode(String(tCfg.mode || "manual"));
+          setTitleFieldKey(String(tCfg.fieldKey || ""));
+          setTitleTemplate(String(tCfg.template || ""));
         }
       } catch (err) {
         console.error("[ListViews] load views error", err);
@@ -580,7 +597,7 @@ export default function ListViewsSettings() {
         label,
         roles: rolesArray,
         default_roles: effectiveDefaultRoles,
-        config: { columns },
+        config: { columns, title: { label: titleLabel, mode: titleMode, fieldKey: titleFieldKey, template: titleTemplate } },
       };
       // Send a single PUT request with all roles and default roles
       await api.put(
@@ -1010,6 +1027,75 @@ export default function ListViewsSettings() {
                   ))}
                 </ul>
               )}
+            </div>
+          </div>
+
+          <div className="su-card">
+            <div className="su-card-header">
+              <h2 className="su-card-title">Row title</h2>
+              <div className="su-card-subtitle">
+                Optional: customize how the Title column is derived and labeled.
+              </div>
+            </div>
+
+            <div className="su-card-body">
+              <div className="su-grid su-gap-sm">
+                <label className="su-label">
+                  Title label
+                  <input
+                    className="su-input"
+                    value={titleLabel}
+                    onChange={(e) => setTitleLabel(e.target.value)}
+                    placeholder="Title"
+                  />
+                </label>
+
+                <label className="su-label">
+                  Title mode
+                  <select
+                    className="su-select"
+                    value={titleMode}
+                    onChange={(e) => setTitleMode(e.target.value)}
+                  >
+                    <option value="manual">Use entry title</option>
+                    <option value="field">Use a field</option>
+                    <option value="template">Template</option>
+                  </select>
+                </label>
+
+                {titleMode === "field" && (
+                  <label className="su-label">
+                    Field key
+                    <select
+                      className="su-select"
+                      value={titleFieldKey}
+                      onChange={(e) => setTitleFieldKey(e.target.value)}
+                    >
+                      <option value="">Select a field…</option>
+                      {availableFields.map((f) => (
+                        <option key={f.key} value={f.key}>
+                          {f.label || f.name || f.key}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+
+                {titleMode === "template" && (
+                  <label className="su-label">
+                    Template
+                    <input
+                      className="su-input"
+                      value={titleTemplate}
+                      onChange={(e) => setTitleTemplate(e.target.value)}
+                      placeholder="{first_name} {last_name}"
+                    />
+                    <div className="su-help">
+                      Use &#123;field_key&#125; tokens, e.g. &#123;first_name&#125; &#123;last_name&#125;.
+                    </div>
+                  </label>
+                )}
+              </div>
             </div>
           </div>
 
