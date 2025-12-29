@@ -86,53 +86,69 @@ function buildLayoutFromView(contentType, viewConfig) {
   });
 
   const sections = [];
-  const cfgSections =
-    viewConfig && Array.isArray(viewConfig.sections) ? viewConfig.sections : null;
 
-  if (cfgSections && cfgSections.length) {
-    for (const sec of cfgSections) {
-      const rows = [];
+// IMPORTANT: distinguish between "no config provided" vs "config exists but empty"
+const cfgSections = viewConfig && Array.isArray(viewConfig.sections) ? viewConfig.sections : null;
+const hasAnyViewSectionsConfig = Array.isArray(cfgSections);
 
-      let columns = 1;
-      if (typeof sec.layout === "string") {
-        if (sec.layout.includes("two")) columns = 2;
-        if (sec.layout.includes("three")) columns = 3;
-      }
-      if (sec.columns && Number.isInteger(sec.columns)) {
-        columns = sec.columns;
-      }
+if (cfgSections && cfgSections.length) {
+  for (const sec of cfgSections) {
+    const rows = [];
 
-      for (const fCfgRaw of sec.fields || []) {
-        let key;
-        let width = 1;
-        let visible = true;
+    let columns = 1;
+    if (typeof sec.layout === "string") {
+      if (sec.layout.includes("two")) columns = 2;
+      if (sec.layout.includes("three")) columns = 3;
+    }
+    if (sec.columns && Number.isInteger(sec.columns)) {
+      columns = sec.columns;
+    }
 
-        if (typeof fCfgRaw === "string") {
-          key = fCfgRaw;
-        } else if (fCfgRaw && typeof fCfgRaw === "object") {
-          key = fCfgRaw.key || fCfgRaw.field || fCfgRaw.field_key;
-          width = fCfgRaw.width || 1;
-          if (fCfgRaw.visible === false) visible = false;
-        }
+    for (const fCfgRaw of sec.fields || []) {
+      let key;
+      let width = 1;
+      let visible = true;
 
-        if (!key) continue;
-        const def = fieldsByKey[key];
-        if (!def) continue;
-        if (visible === false) continue;
-
-        rows.push({ def, width });
+      if (typeof fCfgRaw === "string") key = fCfgRaw;
+      else if (typeof fCfgRaw === "object" && fCfgRaw) {
+        key = fCfgRaw.key || fCfgRaw.field_key || fCfgRaw.field || fCfgRaw.id;
+        width = fCfgRaw.width || fCfgRaw.colSpan || width;
+        if (typeof fCfgRaw.visible === "boolean") visible = fCfgRaw.visible;
       }
 
-      if (rows.length) {
-        sections.push({
-          id: sec.id || sec.title || `section-${sections.length}`,
-          title: sec.title || "",
-          columns,
-          rows,
-        });
-      }
+      if (!key || !visible) continue;
+
+      // built-ins come through as strings too, so allow them through
+      const def = fieldsByKey[key] || { key, type: "builtin" };
+
+      rows.push({ def, width });
+    }
+
+    if (rows.length) {
+      sections.push({
+        id: sec.id || "section",
+        title: sec.title || "Section",
+        columns,
+        rows,
+      });
     }
   }
+}
+
+// Fallback ONLY when there is NO view config at all.
+// If a view exists but contains only built-ins (or invalid keys),
+// we should NOT fall back to "all fields" because that looks like the wrong view loaded.
+if (!sections.length && fields.length && !hasAnyViewSectionsConfig) {
+  sections.push({
+    id: "main",
+    title: "Fields",
+    columns: 1,
+    rows: fields.map((def) => ({ def, width: 1 })),
+  });
+}
+
+return sections;
+
 
  // Fallback: only when there is NO view config at all.
 // If a view exists but contains only built-ins (or invalid keys),
