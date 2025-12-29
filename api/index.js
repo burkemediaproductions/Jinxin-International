@@ -118,6 +118,114 @@ const pool = new pg.Pool({
 
 pool.on('error', (err) => {
   console.error('[pg.pool error]', err);
+
+
+// ---------------------------------------------------------------------------
+// Title template helpers (server-side)
+// ---------------------------------------------------------------------------
+
+function getByPath(obj, path) {
+  if (!path) return undefined;
+  const parts = String(path)
+    .split('.')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  let cur = obj;
+  for (const p of parts) {
+    if (cur == null) return undefined;
+    cur = cur[p];
+  }
+  return cur;
+}
+
+function asPrettyInline(value) {
+  if (value == null) return '';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(asPrettyInline).filter(Boolean).join(', ');
+  }
+
+  if (typeof value === 'object') {
+    // common name-field shapes
+    const first = value.first || '';
+    const last = value.last || '';
+    const middle = value.middle || '';
+    const title = value.title || '';
+    const suffix = value.suffix || '';
+
+    const looksLikeName =
+      Object.prototype.hasOwnProperty.call(value, 'first') ||
+      Object.prototype.hasOwnProperty.call(value, 'last') ||
+      Object.prototype.hasOwnProperty.call(value, 'middle') ||
+      Object.prototype.hasOwnProperty.call(value, 'title') ||
+      Object.prototype.hasOwnProperty.call(value, 'suffix');
+
+    if (looksLikeName) {
+      const bits = [];
+      if (title) bits.push(String(title));
+      if (first) bits.push(String(first));
+      if (middle) bits.push(String(middle));
+      if (last) bits.push(String(last));
+      let out = bits.join(' ').trim();
+      if (suffix) out = `${out} ${suffix}`.trim();
+      return out;
+    }
+
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+
+  return String(value);
+}
+
+function deriveTitleFromTemplate(template, data) {
+  const tpl = String(template || '');
+  if (!tpl.trim()) return '';
+
+  const out = tpl.replace(/\{([^}]+)\}/g, (_, tokenRaw) => {
+    const token = String(tokenRaw || '').trim();
+    if (!token) return '';
+    const val = getByPath(data, token);
+    return asPrettyInline(val);
+  });
+
+  return out.replace(/\s+/g, ' ').trim();
+}
+
+async function getEffectiveEditorCoreForType(contentTypeId, roleUpper) {
+  // Prefer a view that is default for this role, else is_default, else newest.
+  const role = String(roleUpper || '').toUpperCase();
+  try {
+    const { rows } = await pool.query(
+      `SELECT config
+         FROM entry_editor_views
+        WHERE content_type_id = $1
+        ORDER BY
+          CASE WHEN (config->'default_roles')::jsonb ? $2 THEN 1 ELSE 0 END DESC,
+          CASE WHEN is_default THEN 1 ELSE 0 END DESC,
+          updated_at DESC NULLS LAST,
+          created_at DESC NULLS LAST,
+          id ASC
+        LIMIT 1`,
+      [contentTypeId, role]
+    );
+
+    const cfg = rows?.[0]?.config && typeof rows[0].config === 'object' ? rows[0].config : {};
+    const core = cfg?.core && typeof cfg.core === 'object' ? cfg.core : {};
+    return core;
+  } catch (e) {
+    console.warn('[getEffectiveEditorCoreForType] failed:', e?.message || e);
+    return {};
+  }
+}
+
 });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'changeme';
@@ -383,10 +491,25 @@ app.post('/api/content/:slug', authMiddleware, async (req, res) => {
       return res.status(404).json({ error: 'Content type not found' });
     }
 
-    const typeId = ctRows[0].id;
+        const typeId = ctRows[0].id;
+
+    // Server-side title/slug derivation from the effective Editor View core config
+    const roleUpper = String(req.user?.role || 'ADMIN').toUpperCase();
+    const core = await getEffectiveEditorCoreForType(typeId, roleUpper);
+
+    // If this content type's editor view uses a title template, always derive title from data
+    if (core && String(core.titleMode || '').toLowerCase() === 'template') {
+      const derived = deriveTitleFromTemplate(core.titleTemplate || '', data || {});
+      if (derived) title = derived;
+    }
 
     const safeTitle = typeof title === 'string' && title.trim() ? title.trim() : null;
     if (!safeTitle) return res.status(400).json({ error: 'Title is required' });
+
+    // If slug is empty, optionally derive from title
+    if ((!entrySlug || !String(entrySlug).trim()) && core?.autoSlugFromTitleIfEmpty !== false) {
+      entrySlug = slugify(safeTitle);
+    }
 
     const finalSlug =
       typeof entrySlug === 'string' && entrySlug.trim()
@@ -483,10 +606,25 @@ app.put('/api/content/:slug/:id', authMiddleware, async (req, res) => {
     );
     if (!ctRows.length) return res.status(404).json({ error: 'Content type not found' });
 
-    const typeId = ctRows[0].id;
+        const typeId = ctRows[0].id;
+
+    // Server-side title/slug derivation from the effective Editor View core config
+    const roleUpper = String(req.user?.role || 'ADMIN').toUpperCase();
+    const core = await getEffectiveEditorCoreForType(typeId, roleUpper);
+
+    // If this content type's editor view uses a title template, always derive title from data
+    if (core && String(core.titleMode || '').toLowerCase() === 'template') {
+      const derived = deriveTitleFromTemplate(core.titleTemplate || '', data || {});
+      if (derived) title = derived;
+    }
 
     const safeTitle = typeof title === 'string' && title.trim() ? title.trim() : null;
     if (!safeTitle) return res.status(400).json({ error: 'Title is required' });
+
+    // If slug is empty, optionally derive from title
+    if ((!entrySlug || !String(entrySlug).trim()) && core?.autoSlugFromTitleIfEmpty !== false) {
+      entrySlug = slugify(safeTitle);
+    }
 
     const finalSlug =
       typeof entrySlug === 'string' && entrySlug.trim()
