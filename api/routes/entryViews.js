@@ -35,8 +35,8 @@ async function resolveContentTypeId(idOrSlug) {
 }
 
 async function getEditorViewsForType(contentTypeId) {
-  // Returns all editor view rows for a content type.  Caller should
-  // perform role filtering client-side.  Each row includes id, slug,
+  // Returns all editor view rows for a content type. Caller should
+  // perform role filtering client-side. Each row includes id, slug,
   // label, role, is_default and config.
   const { rows } = await pool.query(
     `SELECT id, content_type_id, slug, label, role, is_default, config
@@ -46,6 +46,53 @@ async function getEditorViewsForType(contentTypeId) {
     [contentTypeId]
   );
   return rows;
+}
+
+/**
+ * Normalize config so older/newer UIs can read the same widget list.
+ * Canonical: config.sections (array of widgets/sections)
+ * Legacy aliases:
+ *  - config.widgets
+ *  - config.layout.sections
+ */
+function normalizeEditorViewConfig(cfg) {
+  const raw = cfg && typeof cfg === 'object' ? cfg : {};
+
+  const sections =
+    (Array.isArray(raw.sections) && raw.sections) ||
+    (Array.isArray(raw.widgets) && raw.widgets) ||
+    (raw.layout && Array.isArray(raw.layout.sections) && raw.layout.sections) ||
+    [];
+
+  const core =
+    raw.core && typeof raw.core === 'object' && !Array.isArray(raw.core)
+      ? raw.core
+      : {};
+
+  const layout =
+    raw.layout && typeof raw.layout === 'object' && !Array.isArray(raw.layout)
+      ? raw.layout
+      : {};
+
+  return {
+    ...raw,
+    core,
+    // canonical
+    sections,
+    // legacy aliases (some older screens still read these)
+    widgets: sections,
+    layout: {
+      ...layout,
+      sections,
+    },
+  };
+}
+
+function normalizeViewRow(row) {
+  return {
+    ...row,
+    config: normalizeEditorViewConfig(row?.config),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -66,9 +113,11 @@ router.get(
       const { id: idOrSlug } = req.params;
       const roleParam = req.query.role;
       const allParam = req.query.all;
+
       const role = roleParam
         ? String(roleParam).toUpperCase()
         : (req.user?.role || 'ADMIN').toUpperCase();
+
       const includeAll = String(allParam).toLowerCase() === 'true';
 
       const contentTypeId = await resolveContentTypeId(idOrSlug);
@@ -76,15 +125,20 @@ router.get(
         return res.status(404).json({ error: 'Content type not found' });
       }
 
-      const views = await getEditorViewsForType(contentTypeId);
+      const viewsRaw = await getEditorViewsForType(contentTypeId);
+
+      // ✅ normalize configs so all consumers see sections/widgets/layout.sections
+      const views = viewsRaw.map(normalizeViewRow);
 
       // If includeAll=true or no role provided, return all rows
       if (!roleParam || includeAll) {
         return res.json(views);
       }
-      // Otherwise filter by role.  Use config.roles array if present,
+
+      // Otherwise filter by role. Use config.roles array if present,
       // else fall back to legacy role column.
       const roleValue = role.toUpperCase();
+
       const filtered = views.filter((row) => {
         const cfg = row.config || {};
         const roles = Array.isArray(cfg.roles)
@@ -95,6 +149,7 @@ router.get(
         if (roles.length === 0) return true;
         return roles.includes(roleValue);
       });
+
       return res.json(filtered);
     } catch (err) {
       console.error('[GET /content-types/:id/editor-views]', err);
@@ -144,17 +199,10 @@ router.put(
     const slug = body.slug;
     const label = body.label;
 
-    const rolesRaw =
-      incomingConfig.roles ?? body.roles ?? null;
-
-    const defaultRolesRaw =
-      incomingConfig.default_roles ?? body.default_roles ?? [];
-
-    const sectionsRaw =
-      incomingConfig.sections ?? body.sections ?? [];
-
-    const coreRaw =
-      incomingConfig.core ?? body.core ?? {};
+    const rolesRaw = incomingConfig.roles ?? body.roles ?? null;
+    const defaultRolesRaw = incomingConfig.default_roles ?? body.default_roles ?? [];
+    const sectionsRaw = incomingConfig.sections ?? body.sections ?? [];
+    const coreRaw = incomingConfig.core ?? body.core ?? {};
 
     // Basic validation
     if (!slug || typeof slug !== 'string') {
@@ -183,16 +231,12 @@ router.put(
 
     // Default label
     const safeLabel =
-      label && typeof label === 'string' && label.trim()
-        ? label.trim()
-        : slug;
+      label && typeof label === 'string' && label.trim() ? label.trim() : slug;
 
     // Normalize sections + core
     const normalizedSections = Array.isArray(sectionsRaw) ? sectionsRaw : [];
     const normalizedCore =
-      coreRaw && typeof coreRaw === 'object' && !Array.isArray(coreRaw)
-        ? coreRaw
-        : {};
+      coreRaw && typeof coreRaw === 'object' && !Array.isArray(coreRaw) ? coreRaw : {};
 
     // Resolve content type
     try {
@@ -206,10 +250,7 @@ router.put(
       try {
         await client.query('BEGIN');
 
-        // ------------------------------------------------------------------
-        // Ensure there is only one default editor view per role.
-        // If any roles are designated as default in this request, clear those
-        // default assignments from all other views for the same content type.
+        // Ensure only one default editor view per role
         if (defaultRoleList.length > 0) {
           for (const dRole of defaultRoleList) {
             await client.query(
@@ -229,6 +270,7 @@ router.put(
         }
 
         // Choose a legacy role value to store in the legacy `role` column.
+        // IMPORTANT: we keep this stable and unique per view slug.
         const legacyRoleValue = slug.toUpperCase();
         const isDefaultRow = defaultRoleList.length > 0;
 
@@ -287,7 +329,10 @@ router.put(
         }
 
         await client.query('COMMIT');
-        return res.json({ view: savedRow });
+
+        // ✅ normalize before returning so UI immediately sees the aliases
+        const normalizedSaved = normalizeViewRow(savedRow);
+        return res.json({ view: normalizedSaved });
       } catch (err) {
         await client.query('ROLLBACK');
         console.error('[PUT /content-types/:id/editor-view]', err);
