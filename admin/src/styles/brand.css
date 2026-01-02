@@ -1,28 +1,2 @@
 :root {
-  --su-bg: #ffffff;
-  --su-surface: #f1eae4;
-  --su-text: #222222;
-  --su-muted: #daad8f;;
-  --su-primary: #222222;
-  --su-accent: #AD6663;
-  --su-border: #eeeeee;
-  --su-radius: 12px;
-  --su-shadow: 0 2px 10px rgba(0, 0, 0, .06);
-
-  /* Controls */
-  --su-control-bg: #f1eae4;
-  --su-control-border: var(--su-border);
-  --su-control-radius: 10px;
-  
-  /* Hover / subtle surfaces */
-  --su-hover-bg: #f3f4f6;
-  
-  /* TipTap / editor */
-  --su-editor-border: #dddddd;
-  --su-editor-border-focus: #999999;
-  --su-editor-text-muted: #555555;
-  --su-editor-hr: #e2e2e2;
-  
-  /* Shadows */
-  --su-shadow-elevated: 0 0 20px rgba(0, 0, 0, 0.3);
 }
