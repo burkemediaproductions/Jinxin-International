@@ -849,6 +849,53 @@ app.use('/api/gizmo-packs', gizmoPacksRouter);
 app.get('/content-types', (_req, res) => res.redirect(301, '/api/content-types'));
 app.get('/content/:slug', (req, res) => res.redirect(301, `/api/content/${req.params.slug}`));
 
+// * ---  NBSG/Jinxin Custom Endpoints --- * //
+// Returns recent "Surrogate Cases" assigned to the current user
+app.get('/api/dashboard/my-assigned-cases', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    // Customize these for this install
+    const CASES_SLUG = 'surrogate';     // <-- your content type slug
+    const ASSIGNEE_FIELD = 'case_manager';   // <-- the field key in entries.data
+
+    const limit = Math.min(parseInt(req.query.limit || '8', 10) || 8, 50);
+
+    const { rows: typeRows } = await pool.query(
+      'SELECT id FROM content_types WHERE slug = $1 LIMIT 1',
+      [CASES_SLUG]
+    );
+    if (!typeRows.length) return res.status(404).json({ error: 'Cases content type not found' });
+
+    const typeId = typeRows[0].id;
+
+    // entries.data is JSONB; we compare data->>ASSIGNEE_FIELD to current userId
+    const { rows: entries } = await pool.query(
+      `
+      SELECT *
+      FROM entries
+      WHERE content_type_id = $1
+        AND (data->>$2) = $3
+      ORDER BY updated_at DESC NULLS LAST, created_at DESC
+      LIMIT $4
+      `,
+      [typeId, ASSIGNEE_FIELD, userId, limit]
+    );
+
+    // Attach resolvers so the frontend shows names/titles instead of IDs
+    await attachResolvedUsersToEntries(typeId, entries);
+    await attachResolvedEntriesToEntries(typeId, entries);
+
+    res.json(entries);
+  } catch (err) {
+    console.error('[GET /api/dashboard/my-assigned-cases] error', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+
+
 /* ----------------------- Last-chance error handler ----------------- */
 app.use((err, req, res, _next) => {
   console.error('[FATAL]', err);
