@@ -857,7 +857,7 @@ app.get('/api/dashboard/my-assigned-cases', authMiddleware, async (req, res) => 
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
     // Customize these for this install
-    const CASES_SLUG = 'surrogate';     // <-- your content type slug
+    const CASES_SLUG = 'surrogates';     // <-- your content type slug
     const ASSIGNEE_FIELD = 'case_manager';   // <-- the field key in entries.data
 
     const limit = Math.min(parseInt(req.query.limit || '8', 10) || 8, 50);
