@@ -1,2 +1,31 @@
 :root {
+  --su-bg: #ffffff;
+  --su-surface: #ffffff;
+  --su-text: #111111;
+  --su-muted: #666666;
+  --su-primary: #000000;
+  --su-accent: #BF2C3E;
+  --su-border: #e5e7eb;
+  --su-radius: 12px;
+  --su-shadow: 0 2px 10px rgba(0, 0, 0, .06);
+
+  /* Controls */
+  --su-control-bg: #d68f67;
+  --su-control-border: var(--su-border);
+  --su-control-radius: 10px;
+  
+  /* Hover / subtle surfaces */
+  --su-hover-bg: #f3f4f6;
+  
+  /* TipTap / editor */
+  --su-editor-border: #dddddd;
+  --su-editor-border-focus: #999999;
+  --su-editor-text-muted: #555555;
+  --su-editor-hr: #e2e2e2;
+  
+  /* Shadows */
+  --su-shadow-elevated: 0 0 20px rgba(0, 0, 0, 0.3);
+
+
+  .su-btn {color:#fff;}
 }
