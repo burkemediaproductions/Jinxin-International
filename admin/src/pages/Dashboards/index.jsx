@@ -1,45 +1,13 @@
 // admin/src/pages/Dashboards/index.jsx
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { api } from "../../lib/api";
 import { useDashboard } from "../../hooks/useDashboard";
 
-// Basic library of widget "types" the builder can create
-const WIDGET_LIBRARY = [
-  {
-    type: "quick-links",
-    title: "Quick Links",
-    description:
-      "A list of links for fast navigation (client tools, reports, favorite pages).",
-    defaultConfig: {
-      links: [
-        { id: "content", label: "Content", href: "/admin/content" },
-        { id: "users", label: "Users", href: "/admin/users" },
-      ],
-    },
-    roles: ["ADMIN", "EDITOR"],
-  },
-  {
-    type: "html-block",
-    title: "HTML Block",
-    description:
-      "Free-form HTML content: announcements, instructions, embedded iframes, etc.",
-    defaultConfig: {
-      html: "<p>Edit this HTML block to add announcements or instructions.</p>",
-    },
-    roles: ["ADMIN", "EDITOR"],
-  },
-  {
-    type: "stats",
-    title: "Stats",
-    description: "Simple metrics (totals, counts) you can wire up later.",
-    defaultConfig: {
-      items: [
-        { id: "entries", label: "Entries", value: 0 },
-        { id: "users", label: "Users", value: 0 },
-      ],
-    },
-    roles: ["ADMIN"],
-  },
-];
+// -----------------------------------------------------------------------------
+// This install: single-purpose dashboard
+// - Show ONLY "My Assigned Surrogate Cases" for ALL users
+// - No builder UI, no other widgets, no edit/remove actions
+// -----------------------------------------------------------------------------
 
 function getCurrentRole() {
   try {
@@ -52,142 +20,118 @@ function getCurrentRole() {
   }
 }
 
-export default function DashboardPage() {
-  const {
-    widgets,
-    loading,
-    saving,
-    error,
-    addWidget,
-    updateWidget,
-    removeWidget,
-  } = useDashboard();
+// The one and only widget we want to show for everyone in this install.
+const DEFAULT_WIDGETS = [
+  {
+    id: "my-assigned-surrogate-cases",
+    type: "my-assigned-surrogate-cases",
+    title: "My Assigned Surrogate Cases",
+    // roles omitted intentionally => visible to all roles/users
+    config: {
+      limit: 10,
+      linkBase: "/admin/content/surrogates",
+    },
+  },
+];
 
-  const [isAdding, setIsAdding] = useState(false);
-  const [selectedType, setSelectedType] = useState("");
+function MyAssignedSurrogateCasesWidget({ config }) {
+  const [items, setItems] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const limit = config?.limit ?? 10;
+  const linkBase = config?.linkBase || "/admin/content/surrogates";
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        setBusy(true);
+        setErr("");
+
+        // Backend should return only cases assigned to current user
+        const res = await api.get(
+          `/api/dashboard/my-assigned-cases?limit=${encodeURIComponent(limit)}`
+        );
+
+        const rows = Array.isArray(res) ? res : res?.data || [];
+        if (!cancelled) setItems(rows);
+      } catch (e) {
+        if (!cancelled) setErr("Could not load your assigned surrogate cases.");
+      } finally {
+        if (!cancelled) setBusy(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [limit]);
+
+  if (busy) return <p className="su-text-muted">Loading…</p>;
+  if (err) return <p className="su-text-muted">{err}</p>;
+  if (!items.length) return <p className="su-text-muted">No assigned cases found.</p>;
+
+  return (
+    <ul className="su-dashboard-list" style={{ margin: 0, paddingLeft: 18 }}>
+      {items.map((row) => {
+        const idOrSlug = row?.slug || row?.id;
+        const title =
+          row?.title ||
+          row?.data?.title ||
+          row?.data?._title ||
+          row?.data?.name?.full ||
+          "(untitled)";
+
+        const status = row?.status || row?.data?.status;
+
+        return (
+          <li key={row.id} className="su-dashboard-list__item" style={{ marginBottom: 8 }}>
+            <a className="su-link" href={`${linkBase}/${idOrSlug}`}>
+              {title}
+            </a>
+            {status ? (
+              <span className="su-text-muted" style={{ marginLeft: 8, fontSize: 12 }}>
+                {status}
+              </span>
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+export default function DashboardPage() {
+  // Keep the hook so the page still respects your existing loading/error states,
+  // but we intentionally IGNORE widgets from storage for this install.
+  const { loading, saving, error } = useDashboard();
 
   const currentRole = getCurrentRole();
 
-  // Only show widgets allowed for the current role
-  const visibleWidgets = useMemo(
-    () =>
-      (widgets || []).filter(
-        (w) =>
-          !w.roles ||
-          !w.roles.length ||
-          w.roles.map((r) => r.toUpperCase()).includes(currentRole)
-      ),
-    [widgets, currentRole]
-  );
-
-  const availableWidgetTypes = useMemo(
-    () =>
-      WIDGET_LIBRARY.filter((w) =>
-        !w.roles || w.roles.includes(currentRole)
-      ),
-    [currentRole]
-  );
-
-  function handleAddWidgetClick(type) {
-    const def = WIDGET_LIBRARY.find((w) => w.type === type);
-    if (!def) {
-      alert("Unknown widget type.");
-      return;
-    }
-    addWidget({
-      id: `${type}-${Date.now()}`,
-      type: def.type,
-      title: def.title,
-      config: def.defaultConfig,
-      roles: def.roles || [],
-    });
-    setIsAdding(false);
-    setSelectedType("");
-  }
+  // Force only the default widget(s) for this install.
+  const visibleWidgets = useMemo(() => DEFAULT_WIDGETS, []);
 
   function renderWidget(widget) {
     const { id, type, title, config = {} } = widget;
     const key = id || `${type}-${Math.random()}`;
 
-    // Safety guard: if type is unknown, show a placeholder instead of crashing
-    const libraryDef = WIDGET_LIBRARY.find((w) => w.type === type);
-
     return (
       <div key={key} className="su-card su-dashboard-widget">
         <div className="su-dashboard-widget__header">
-          <h3>{title || libraryDef?.title || "Widget"}</h3>
-          <div className="su-dashboard-widget__actions">
-            <button
-              type="button"
-              className="su-btn"
-              onClick={() =>
-                updateWidget(id, {
-                  // Very minimal editor for now; you’ll expand this later
-                  title:
-                    window.prompt("Widget title:", title || "") || title || "",
-                })
-              }
-            >
-              Edit
-            </button>
-            <button
-              type="button"
-              className="su-btn danger"
-              onClick={() => removeWidget(id)}
-            >
-              Remove
-            </button>
-          </div>
+          <h3>{title || "Widget"}</h3>
+          {/* No actions (Edit/Remove) for this install */}
         </div>
 
         <div className="su-dashboard-widget__body">
-          {type === "quick-links" && (
-            <ul className="su-dashboard-quicklinks">
-              {(config.links || []).map((link) => (
-                <li key={link.id || link.href}>
-                  <a href={link.href} className="su-link">
-                    {link.label || link.href}
-                  </a>
-                </li>
-              ))}
-              {(!config.links || config.links.length === 0) && (
-                <p className="su-text-muted">
-                  No links yet. A future editor will let you customize these.
-                </p>
-              )}
-            </ul>
+          {type === "my-assigned-surrogate-cases" && (
+            <MyAssignedSurrogateCasesWidget config={config} />
           )}
 
-          {type === "html-block" && (
-            <div
-              className="su-dashboard-html"
-              // This is specifically for trusted admin-created content
-              dangerouslySetInnerHTML={{ __html: config.html || "" }}
-            />
-          )}
-
-          {type === "stats" && (
-            <div className="su-dashboard-stats">
-              {(config.items || []).map((item) => (
-                <div
-                  key={item.id}
-                  className="su-dashboard-stat su-card--soft"
-                >
-                  <div className="su-dashboard-stat__label">
-                    {item.label}
-                  </div>
-                  <div className="su-dashboard-stat__value">
-                    {item.value}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {!["quick-links", "html-block", "stats"].includes(type) && (
+          {type !== "my-assigned-surrogate-cases" && (
             <p className="su-text-muted">
-              Unknown widget type: <code>{type}</code>. Update the dashboard
-              code to support this widget.
+              Unknown widget type: <code>{type}</code>.
             </p>
           )}
         </div>
@@ -201,8 +145,7 @@ export default function DashboardPage() {
         <div>
           <h1 className="su-page-title">Dashboard</h1>
           <p className="su-page-subtitle">
-            Role: <strong>{currentRole}</strong>. Customize widgets for each
-            role using the builder below.
+            Role: <strong>{currentRole}</strong>.
           </p>
         </div>
         <div className="su-page-header__actions">
@@ -221,45 +164,11 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <section className="su-dashboard-add">
-        <div className="su-card su-dashboard-add__card">
-          <div className="su-dashboard-add__header">
-            <h2>Add Widget</h2>
-            <p>
-              Choose a widget type to add to the {currentRole.toLowerCase()}{" "}
-              dashboard.
-            </p>
-          </div>
-          <div className="su-dashboard-add__types">
-            {availableWidgetTypes.map((wt) => (
-              <button
-                key={wt.type}
-                type="button"
-                className="su-dashboard-add__type su-btn ghost"
-                onClick={() => handleAddWidgetClick(wt.type)}
-              >
-                <div className="su-dashboard-add__type-title">{wt.title}</div>
-                <div className="su-dashboard-add__type-description">
-                  {wt.description}
-                </div>
-              </button>
-            ))}
-            {availableWidgetTypes.length === 0 && (
-              <p className="su-text-muted">
-                No widget types are available for this role yet.
-              </p>
-            )}
-          </div>
-        </div>
-      </section>
+      {/* Builder intentionally removed for this install */}
 
       <section className="su-dashboard-widgets">
         {loading ? (
           <p className="su-text-muted">Loading dashboard…</p>
-        ) : visibleWidgets.length === 0 ? (
-          <p className="su-text-muted">
-            No widgets yet. Use “Add Widget” above to create one.
-          </p>
         ) : (
           <div className="su-grid cols-2 gap-lg">
             {visibleWidgets.map((w) => renderWidget(w))}
