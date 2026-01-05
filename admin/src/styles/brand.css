@@ -29,4 +29,8 @@
 
   .su-btn {color:#fff;}
   .su-table th {padding: 2px 80px;}
+  .su-grid.cols-2 {
+    grid-template-columns: unset;
+    max-width: 1450px;
+}
 }
